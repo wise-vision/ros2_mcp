@@ -43,7 +43,6 @@ ENTRYPOINT []
 CMD ["bash", "-c", " \
   source /opt/ros/${ROS_DISTRO}/setup.bash && \
   source /root/wisevision_ws/install/setup.bash && \
-  source .venv/bin/activate && \
   if [ -f /app/custom_msgs/install/setup.bash ]; then \
   source /app/custom_msgs/install/setup.bash; \
   fi && \

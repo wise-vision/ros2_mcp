@@ -171,7 +171,7 @@ docker build -t mcp_server_ros_2:<humble/jazzy>  --build-arg ROS_DISTRO=<humble/
 ```bash
 mkdir -p ~/mcp_custom_messages/src
 ```
-### Add messages package to `src` in `mcp_custom_messages`
+### Add messages packages to `src` in `mcp_custom_messages`
 ```bash
 cd ~/mcp_custom_messages/src
 git clone https://github.com/ros/ros_tutorials.git #or your custom message pack
@@ -181,3 +181,5 @@ git clone https://github.com/ros/ros_tutorials.git #or your custom message pack
 cd ~/mcp_custom_messages
 colcon build
 ```
+
+docker build -t mcp_server_ros_2_dev:humble  --build-arg ROS_DISTRO=humble .
