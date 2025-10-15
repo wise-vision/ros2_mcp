@@ -42,7 +42,7 @@ Before you begin, ensure you have the following:
 3. Click on the `Edit config` in `local MCP servers`.
 
 ![Enter image name](../docs/assets/claude_add_mcp.png)
-4. Paste it into this config:
+4. Paste it into config:
 ```json
 {
   "mcp_server_ros_2": {
@@ -59,7 +59,24 @@ Before you begin, ensure you have the following:
   }
 }
 ```
-
+To use custom messages [create folder](#add-custom-messages) and paste it into config:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-v", "~/mcp_custom_messages:/app/custom_msgs"
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
 ### Step 2: Save and Enjoy
 
 After saving you should see indicator that the MCP server is running.
@@ -114,6 +131,24 @@ docker build -t wisevision/mcp_server_ros_2 .
   }
 }
 ```
+To use custom messages [create folder](#add-custom-messages) and paste it into config:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-v", "~/mcp_custom_messages:/app/custom_msgs"
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
 
 ### Step 4: Save and Enjoy
 
@@ -130,3 +165,21 @@ docker build -t mcp_server_ros_2:<humble/jazzy>  --build-arg ROS_DISTRO=<humble/
 
 ### Thanks for using our MCP server for ROS 2! Good luck with your projects!
 ---
+
+## Add custom messages
+### Create folder for custom messages
+```bash
+mkdir -p ~/mcp_custom_messages/src
+```
+### Add messages packages to `src` in `mcp_custom_messages`
+```bash
+cd ~/mcp_custom_messages/src
+git clone https://github.com/ros/ros_tutorials.git #or your custom message pack
+```
+### Build
+```bash
+cd ~/mcp_custom_messages
+colcon build
+```
+
+docker build -t mcp_server_ros_2_dev:humble  --build-arg ROS_DISTRO=humble .
