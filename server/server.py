@@ -50,7 +50,12 @@ add_tool_handler(tools_ros2.ROS2TopicSubscribe())
 add_tool_handler(tools_ros2.ROS2GetMessages())
 add_tool_handler(tools_ros2.ROS2GetMessageFields())
 add_tool_handler(tools_ros2.ROS2TopicPublish())
-
+add_tool_handler(tools_ros2.ROS2ListActions())
+add_tool_handler(tools_ros2.ROS2SendActionGoal())
+add_tool_handler(tools_ros2.ROS2CancelActionGoal())
+add_tool_handler(tools_ros2.ROS2ActionRequestResult())
+add_tool_handler(tools_ros2.ROS2ActionSubscribeFeedback())
+add_tool_handler(tools_ros2.ROS2ActionSubscribeStatus())
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:

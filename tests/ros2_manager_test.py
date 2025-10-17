@@ -203,14 +203,6 @@ def test_subscribe_topic_import_fail(mock_node_cls, mock_import):
     assert "error" in result
     assert "Failed to import" in result["error"]
 
-from unittest.mock import patch, MagicMock
-from server.ros2_manager import ROS2Manager
-
-from unittest.mock import MagicMock, patch
-import rclpy
-from server.ros2_manager import ROS2Manager
-
-
 @patch("server.ros2_manager.get_service")
 @patch("server.ros2_manager.get_message")
 @patch("server.ros2_manager.deserialize_message")
@@ -392,10 +384,584 @@ def test_mavros_waypoint_push_int_to_float_no_type_mocks(mock_spin, mock_node_cl
         wp1 = sent_req.waypoints[1]
         assert isinstance(wp1.z_alt, float) and wp1.z_alt == 7.0
 
+
     finally:
         if rclpy.ok():
             rclpy.shutdown()
 
+import types
+from action_tutorials_interfaces.action import Fibonacci
+
+ACTION_TYPE = "action_tutorials_interfaces/action/Fibonacci"
+ACTION_NAME = "/fibonacci"
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch("server.ros2_manager.ActionClient")
+@patch("server.ros2_manager.importlib.import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
+def test_send_action_goal_no_wait_not_accepted(mock_import, mock_action_client, mock_spin, mock_node_cls):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        mgr = ROS2Manager()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_server.return_value = True
+        mock_action_client.return_value = mock_client
+
+        goal_handle = MagicMock()
+        goal_handle.accepted = False
+        goal_handle.goal_id = types.SimpleNamespace(uuid=b"\x01"*16)
+
+        send_future = MagicMock()
+        send_future.result.return_value = goal_handle
+        mock_client.send_goal_async.return_value = send_future
+
+        resp = mgr.send_action_goal(
+            action_name=ACTION_NAME,
+            action_type=ACTION_TYPE,
+            goal_fields={"order": 5},
+            wait_for_result=False,
+        )
+
+        assert resp["accepted"] is False
+        assert resp["status"] == "NOT_ACCEPTED"
+        assert resp["result"] is None
+
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch("server.ros2_manager.ActionClient")
+@patch("server.ros2_manager.importlib.import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
+def test_send_action_goal_no_wait_accepted(mock_import, mock_action_client, mock_spin, mock_node_cls):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        mgr = ROS2Manager()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_server.return_value = True
+        mock_action_client.return_value = mock_client
+
+        goal_handle = MagicMock()
+        goal_handle.accepted = True
+        goal_handle.goal_id = types.SimpleNamespace(uuid=b"\x02"*16)
+        send_future = MagicMock()
+        send_future.result.return_value = goal_handle
+        mock_client.send_goal_async.return_value = send_future
+
+        resp = mgr.send_action_goal(
+            action_name=ACTION_NAME,
+            action_type=ACTION_TYPE,
+            goal_fields={"order": 5},
+            wait_for_result=False,
+        )
+
+        assert resp["accepted"] is True
+        assert resp["status"] == "ACCEPTED"
+        assert resp["result"] is None
+
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+from action_tutorials_interfaces.action._fibonacci import Fibonacci_GetResult
+from action_tutorials_interfaces import action as fib_action
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch("server.ros2_manager.ActionClient")
+@patch("server.ros2_manager.importlib.import_module", return_value=fib_action)
+def test_send_action_goal_wait_for_result_succeeded(
+    mock_import, mock_action_client, mock_spin, mock_node_cls
+):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        mgr = ROS2Manager()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_server.return_value = True
+        mock_action_client.return_value = mock_client
+
+        result_future = MagicMock()
+        result_future.done.return_value = True
+
+        resp_msg = Fibonacci_GetResult.Response()
+        resp_msg.status = 4
+        resp_msg.result = Fibonacci.Result(sequence=[0, 1, 1, 2, 3, 5])
+        result_future.result.return_value = resp_msg
+
+        goal_handle = MagicMock()
+        goal_handle.accepted = True
+        goal_handle.goal_id = types.SimpleNamespace(uuid=b"\x03" * 16)
+        goal_handle.get_result_async.return_value = result_future
+
+        send_future = MagicMock()
+        send_future.result.return_value = goal_handle
+        mock_client.send_goal_async.return_value = send_future
+
+        resp = mgr.send_action_goal(
+            action_name="/fibonacci",
+            action_type="action_tutorials_interfaces/action/Fibonacci",
+            goal_fields={"order": 5},
+            wait_for_result=True,
+            timeout_sec=5.0,
+        )
+        assert resp["accepted"] is True
+        assert resp["status"] == "SUCCEEDED"
+        assert resp["result"] is not None
+        assert resp["result"]["sequence"][-1] == 5
+
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+@patch("server.ros2_manager.get_action_names_and_types")
+@patch.object(ROS2Manager, "get_request_fields")
+def test_list_actions_returns_actions_with_request_fields(mock_get_fields, mock_get_names):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+        mock_get_names.return_value = [
+            ("/fibonacci", ["action_tutorials_interfaces/action/Fibonacci"]),
+            ("/navigate_to_pose", ["nav2_msgs/action/NavigateToPose"]),
+        ]
+
+        def fake_get_fields(ros_type: str):
+            if ros_type == "action_tutorials_interfaces/action/Fibonacci":
+                return {"order": "int32"}
+            elif ros_type == "nav2_msgs/action/NavigateToPose":
+                return {"pose": "geometry_msgs/PoseStamped"}
+            else:
+                return {"error": "unknown type"}
+
+        mock_get_fields.side_effect = fake_get_fields
+
+        mgr = ROS2Manager()
+        mgr.node = MagicMock()
+
+        resp = mgr.list_actions()
+
+        assert "actions" in resp
+        actions = resp["actions"]
+        assert any(a["name"] == "/fibonacci" and a["request_fields"]["order"] == "int32" for a in actions)
+        assert any(a["name"] == "/navigate_to_pose" and "pose" in a["request_fields"] for a in actions)
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+@patch("rclpy.spin_until_future_complete")
+@patch("server.ros2_manager.message_to_ordereddict")
+@patch("importlib.import_module")
+@patch("server.ros2_manager.GOAL_CANCEL_RET", new={0: "OK"})
+def test_cancel_action_goal_cancel_all_success(
+    mock_import_module, mock_msg_to_dict, mock_spin
+):
+    try:
+        rclpy.init()
+
+        class _Stamp:
+            def __init__(self):
+                self.sec = 0
+                self.nanosec = 0
+
+        class _GoalID:
+            def __init__(self):
+                self.uuid = b""
+
+        class _GoalInfo:
+            def __init__(self):
+                self.goal_id = _GoalID()
+                self.stamp = _Stamp()
+
+        class _Request:
+            def __init__(self):
+                self.goal_info = _GoalInfo()
+
+        CancelGoal = MagicMock()
+        CancelGoal.Request = MagicMock(return_value=_Request())
+
+        fake_srv_module = MagicMock()
+        setattr(fake_srv_module, "CancelGoal", CancelGoal)
+        mock_import_module.return_value = fake_srv_module
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = True
+
+        fake_response = MagicMock()
+        fake_response.return_code = 0
+
+        mock_msg_to_dict.return_value = {
+            "goals_canceling": [
+                {
+                    "goal_id": {"uuid": [0x12, 0x34, 0x56, 0x78] + [0] * 12},
+                    "stamp": {"sec": 111, "nanosec": 222},
+                }
+            ]
+        }
+
+        fake_future = MagicMock()
+        fake_future.result.return_value = fake_response
+        mock_client.call_async.return_value = fake_future
+
+        manager = ROS2Manager()
+        node = MagicMock()
+        node.create_client.return_value = mock_client
+
+        result = manager.cancel_action_goal(
+            node=node,
+            action_name="/my_action",
+            cancel_all=True,
+            stamp_sec=111,
+            stamp_nanosec=222,
+            wait_timeout_sec=1.5,
+        )
+
+        assert "error" not in result
+        assert result["service"] == "/my_action/_action/cancel_goal"
+        assert result["return_code"] == 0
+        assert result["return_code_text"] == "OK"
+        assert isinstance(result["goals_canceling"], list)
+        assert len(result["goals_canceling"]) == 1
+
+        item = result["goals_canceling"][0]
+        assert item["goal_id"].startswith("12345678")
+        assert item["stamp"] == {"sec": 111, "nanosec": 222}
+
+        sent_req = CancelGoal.Request.return_value
+        uuid_field = getattr(sent_req.goal_info.goal_id, "uuid")
+        if isinstance(uuid_field, (bytes, bytearray)):
+            assert uuid_field == bytes([0] * 16)
+        else:
+            assert list(uuid_field) == [0] * 16
+
+        mock_client.wait_for_service.assert_called_once()
+        mock_client.call_async.assert_called_once()
+        mock_spin.assert_called_once()
+
+    finally:
+        rclpy.shutdown()
+
+@patch("rclpy.spin_until_future_complete")
+@patch("server.ros2_manager.message_to_ordereddict")
+@patch("importlib.import_module")
+def test_action_request_result_success(mock_import_module, mock_msg_to_dict, mock_spin):
+    try:
+        rclpy.init()
+
+        class _GetResultReq:
+            def __init__(self):
+                class GID:
+                    def __init__(self):
+                        self.uuid = None
+                self.goal_id = GID()
+
+        class _GetResultResp:
+            def __init__(self):
+                self.status = 4
+                self.result = MagicMock()
+
+        # >>> kluczowa zmiana: ActionCls ma atrybut GetResult z .Request
+        class _GetResultType:
+            Request = MagicMock(return_value=_GetResultReq())
+
+        class _ActionCls:
+            GetResult = _GetResultType
+
+        fake_pkg_mod = MagicMock()
+        setattr(fake_pkg_mod, "Fibonacci", _ActionCls)
+        mock_import_module.return_value = fake_pkg_mod
+
+        mock_msg_to_dict.return_value = {"sequence": [1, 1, 2, 3, 5]}
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = True
+
+        fake_future = MagicMock()
+        fake_future.done.return_value = True
+        fake_future.result.return_value = _GetResultResp()
+        mock_client.call_async.return_value = fake_future
+
+        mgr = ROS2Manager()
+        mgr.node.create_client = MagicMock(return_value=mock_client)
+        # lepiej zwracać bytes (tak jak realne pole UUID oczekuje)
+        mgr._hex_to_uuid_bytes = lambda h: bytes.fromhex(h)
+
+        goal_id_hex = "0123456789abcdef0123456789abcdef"
+
+        out = mgr.action_request_result(
+            action_name="/fibonacci",
+            action_type="example_interfaces/action/Fibonacci",
+            goal_id_hex=goal_id_hex,
+            timeout_sec=2.5,
+        )
+
+        assert "error" not in out
+        assert out["service"] == "/fibonacci/_action/get_result"
+        assert out["goal_id"] == goal_id_hex
+        assert out["waited"] is True
+        assert out["result_timeout_sec"] == 2.5
+        assert isinstance(out["status_code"], int)
+        assert out["status"] is not None
+        assert out["result"] == {"sequence": [1, 1, 2, 3, 5]}
+
+        sent_req = _GetResultType.Request.return_value
+        assert isinstance(sent_req.goal_id.uuid, (bytes, bytearray))
+        assert len(sent_req.goal_id.uuid) == 16
+
+        mock_client.wait_for_service.assert_called_once()
+        mock_client.call_async.assert_called_once()
+        mock_spin.assert_called_once()
+
+    finally:
+        rclpy.shutdown()
+
+
+@patch("rclpy.spin_until_future_complete")
+@patch("importlib.import_module")
+def test_action_request_result_timeout(mock_import_module, mock_spin):
+    try:
+        rclpy.init()
+
+        class _GetResultReq:
+            def __init__(self):
+                class GID:
+                    def __init__(self):
+                        self.uuid = None
+                self.goal_id = GID()
+
+        # >>> tak samo jak wyżej: udajemy <Action>.GetResult
+        class _GetResultType:
+            Request = MagicMock(return_value=_GetResultReq())
+
+        class _ActionCls:
+            GetResult = _GetResultType
+
+        fake_pkg_mod = MagicMock()
+        setattr(fake_pkg_mod, "Fibonacci", _ActionCls)
+        mock_import_module.return_value = fake_pkg_mod
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = True
+
+        # future, który NIE kończy się w limicie
+        fake_future = MagicMock()
+        fake_future.done.return_value = False
+        mock_client.call_async.return_value = fake_future
+
+        mgr = ROS2Manager()
+        mgr.node.create_client = MagicMock(return_value=mock_client)
+        mgr._hex_to_uuid_bytes = lambda h: bytes.fromhex(h)
+
+        goal_id_hex = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+        out = mgr.action_request_result(
+            action_name="/fibonacci",
+            action_type="example_interfaces/action/Fibonacci",
+            goal_id_hex=goal_id_hex,
+            timeout_sec=0.1,
+        )
+
+        assert "error" not in out
+        assert out["status"] == "TIMEOUT"
+        assert out["status_code"] == 0
+        assert out["result"] is None
+        assert out["result_timeout_sec"] == 0.1
+
+        mock_client.wait_for_service.assert_called_once()
+        mock_client.call_async.assert_called_once()
+        mock_spin.assert_called_once()
+
+    finally:
+        rclpy.shutdown()
+
+class _FakeNow:
+    def __init__(self):
+        self.nanoseconds = 0
+
+    def to_msg(self):
+        class _Stamp:
+            pass
+        s = _Stamp()
+        s.sec = int(self.nanoseconds // 1_000_000_000)
+        s.nanosec = int(self.nanoseconds % 1_000_000_000)
+        return s
+
+
+class _FakeClock:
+    def __init__(self, now):
+        self._now = now
+
+    def now(self):
+        return self._now
+
+@patch("server.ros2_manager.message_to_ordereddict")
+@patch("importlib.import_module")
+@patch("rclpy.spin_once")
+def test_action_subscribe_feedback_filters_and_collects(mock_spin_once, mock_import_module, mock_msg_to_dict):
+    try:
+        rclpy.init()
+
+        class _FeedbackMsg:
+            def __init__(self):
+                self.goal_id = types.SimpleNamespace(uuid=None)
+            feedback = MagicMock()
+
+        class _Impl:
+            FeedbackMessage = _FeedbackMsg
+
+        class _ActionCls:
+            Impl = _Impl
+
+        fake_pkg_mod = MagicMock()
+        setattr(fake_pkg_mod, "Fibonacci", _ActionCls)
+        mock_import_module.return_value = fake_pkg_mod
+
+        mock_msg_to_dict.return_value = {"partial_sequence": [1, 1, 2, 3]}
+
+        mgr = ROS2Manager()
+        node = MagicMock()
+        now = _FakeNow()
+        node.get_clock.return_value = _FakeClock(now)
+        callbacks = []
+
+        def _create_subscription(_msg_type, _topic, cb, _qos):
+            callbacks.append(cb)
+            return MagicMock()
+
+        node.create_subscription.side_effect = _create_subscription
+        node.destroy_subscription = MagicMock()
+        mgr.node = node
+
+        goal_id_hex = "00112233445566778899aabbccddeeff"
+        uuid_bytes = bytes.fromhex(goal_id_hex)
+
+        def _spin_once_effect(_node, timeout_sec=0.1):
+            if callbacks:
+                cb = callbacks[0]
+                msg = _FeedbackMsg()
+                msg.goal_id.uuid = list(uuid_bytes)
+                cb(msg)
+                callbacks.clear()
+            now.nanoseconds += 10_000_000_000
+
+        mock_spin_once.side_effect = _spin_once_effect
+
+        out = mgr.action_subscribe_feedback(
+            action_name="/fibonacci",
+            action_type="example_interfaces/action/Fibonacci",
+            goal_id_hex=goal_id_hex,
+            duration_sec=0.01,
+            max_messages=10,
+        )
+
+        assert "error" not in out
+        assert out["topic"] == "/fibonacci/_action/feedback"
+        assert out["goal_id_filter"] == goal_id_hex
+        assert isinstance(out["messages"], list)
+        assert len(out["messages"]) == 1
+
+        item = out["messages"][0]
+        assert item["goal_id"] == goal_id_hex
+        assert item["feedback"] == {"partial_sequence": [1, 1, 2, 3]}
+        assert "recv_stamp" in item and "sec" in item["recv_stamp"]
+
+        node.create_subscription.assert_called_once()
+    finally:
+        rclpy.shutdown()
+
+@patch("rclpy.spin_once")
+def test_action_subscribe_status_collects_frames(mock_spin_once, monkeypatch):
+    try:
+        rclpy.init()
+
+        class _GoalInfo:
+            def __init__(self, uuid_bytes, sec, nsec):
+                self.goal_id = types.SimpleNamespace(uuid=list(uuid_bytes))
+                self.stamp = types.SimpleNamespace(sec=sec, nanosec=nsec)
+
+        class _GoalStatus:
+            def __init__(self, uuid_bytes, status, sec=1, nsec=2):
+                self.goal_info = _GoalInfo(uuid_bytes, sec, nsec)
+                self.status = status
+
+        class _GoalStatusArray:
+            def __init__(self, statuses):
+                self.status_list = statuses
+
+        fake_action_msgs = types.ModuleType("action_msgs")
+        fake_action_msgs_msg = types.ModuleType("action_msgs.msg")
+        fake_action_msgs_msg.GoalStatusArray = _GoalStatusArray
+        monkeypatch.setitem(__import__("sys").modules, "action_msgs", fake_action_msgs)
+        monkeypatch.setitem(__import__("sys").modules, "action_msgs.msg", fake_action_msgs_msg)
+
+        mgr = ROS2Manager()
+        node = MagicMock()
+        now = _FakeNow()
+        node.get_clock.return_value = _FakeClock(now)
+        callbacks = []
+
+        def _create_subscription(_msg_type, _topic, cb, _qos):
+            callbacks.append(cb)
+            return MagicMock()
+
+        node.create_subscription.side_effect = _create_subscription
+        node.destroy_subscription = MagicMock()
+        mgr.node = node
+
+        uuid_hex = "deadbeefcafebabe0011223344556677"
+        uuid_bytes = bytes.fromhex(uuid_hex)
+
+        def _spin_once_effect(_node, timeout_sec=0.1):
+            if callbacks:
+                cb = callbacks[0]
+                msg = _GoalStatusArray([_GoalStatus(uuid_bytes, 2, sec=5, nsec=6)])
+                cb(msg)
+                callbacks.clear()
+            now.nanoseconds += 10_000_000_000
+
+        mock_spin_once.side_effect = _spin_once_effect
+
+        out = mgr.action_subscribe_status(
+            action_name="/fibonacci",
+            duration_sec=0.01,
+            max_messages=10,
+        )
+
+        assert "error" not in out
+        assert out["topic"] == "/fibonacci/_action/status"
+        assert isinstance(out["frames"], list)
+        assert len(out["frames"]) == 1
+
+        frame = out["frames"][0]
+        assert isinstance(frame["statuses"], list) and len(frame["statuses"]) == 1
+        st = frame["statuses"][0]
+        assert st["goal_id"] == uuid_hex
+        assert st["accept_stamp"] == {"sec": 5, "nanosec": 6}
+        assert isinstance(st["status_code"], int)
+        assert st["status"] is not None
+
+        node.create_subscription.assert_called_once()
+    finally:
+        rclpy.shutdown()
 
 from rclpy.qos import (
     QoSProfile,
