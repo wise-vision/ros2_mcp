@@ -29,7 +29,8 @@ jobs:
           python3-pip \
           python3-colcon-common-extensions \
           ros-humble-example-interfaces \
-          ros-humble-mavros-msgs
+          ros-humble-mavros-msgs \
+          ros-humble-action-tutorials-interfaces
         python3 -m pip install --upgrade pip
         pip install uv
 

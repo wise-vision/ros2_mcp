@@ -18,14 +18,15 @@ RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ros2cli \
     ros-${ROS_DISTRO}-nav2-msgs \
     ros-${ROS_DISTRO}-mavros-msgs \
+    ros-${ROS_DISTRO}-action-tutorials-interfaces \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ "$ROS_DISTRO" = "humble" ]; then \
-      pip install uv; \
-    elif [ "$ROS_DISTRO" = "jazzy" ]; then \
-      pip install uv --break-system-packages; \
-    fi
+  pip install uv; \
+  elif [ "$ROS_DISTRO" = "jazzy" ]; then \
+  pip install uv --break-system-packages; \
+  fi
 
 WORKDIR /app
 COPY . /app
@@ -33,10 +34,20 @@ COPY . /app
 RUN uv venv
 
 RUN if [ "$ROS_DISTRO" = "jazzy" ]; then \
-      uv python pin 3.12; \
-    fi
+  uv python pin 3.12; \
+  fi
 
 RUN uv sync
 
+RUN mkdir -p /mcp/custom_msgs
+VOLUME ["/mcp/custom_msgs"]
+
 ENTRYPOINT []
-CMD ["bash", "-c", "source /opt/ros/${ROS_DISTRO}/setup.bash && source /root/wisevision_ws/install/setup.bash && source .venv/bin/activate && uv run mcp_ros_2_server"]
+CMD ["bash", "-c", " \
+  source /opt/ros/${ROS_DISTRO}/setup.bash && \
+  source /root/wisevision_ws/install/setup.bash && \
+  if [ -f /app/custom_msgs/install/setup.bash ]; then \
+  source /app/custom_msgs/install/setup.bash; \
+  fi && \
+  uv run mcp_ros_2_server \
+  "]
