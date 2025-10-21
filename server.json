@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.wise-vision/mcp_server_ros_2",
+  "description": "View ROS 2 nodes and topics, and call services and actions via MCP",
+  "repository": {
+    "url": "https://github.com/wise-vision/mcp_server_ros_2",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/mcp/ros2:latest",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
