@@ -1,6 +1,8 @@
 ARG ROS_DISTRO=jazzy
 FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
 
+LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/mcp_server_ros_2"
+
 RUN apt-get update && apt-get install -y \
     python3-pip \
     build-essential \
