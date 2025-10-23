@@ -9,14 +9,14 @@
 #
 from __future__ import annotations
 from dataclasses import dataclass, field
-from typing import Dict, List, Tuple, Any, Literal
+from typing import Any, Literal
 from mcp.types import (
     Prompt,
     PromptArgument,
     PromptMessage,
     GetPromptResult,
+    TextContent
 )
-from mcp.types import TextContent
 
 @dataclass
 class ArgSpec:
@@ -38,8 +38,8 @@ class BasePromptHandler:
     """
     name: str
     description: str
-    args: List[ArgSpec] = field(default_factory=list)
-    messages_template: List[Tuple[str, str]] = field(default_factory=list)
+    args: list[ArgSpec] = field(default_factory=list)
+    messages_template: list[tuple[str, str]] = field(default_factory=list)
 
     def get_prompt_description(self) -> Prompt:
         return Prompt(
@@ -55,7 +55,7 @@ class BasePromptHandler:
             ],
         )
 
-    def render(self, arguments: Dict[str, str] | None) -> GetPromptResult:
+    def render(self, arguments: dict[str, str] | None) -> GetPromptResult:
         arguments = arguments or {}
 
         # Validate required args + fill defaults for optional
@@ -71,7 +71,7 @@ class BasePromptHandler:
                 arguments[a.name] = a.default
 
         # Render each message with simple str.format
-        messages: List[PromptMessage] = []
+        messages: list[PromptMessage] = []
         for role, template in self.messages_template:
             try:
                 text = template.format(**arguments)

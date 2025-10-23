@@ -10,7 +10,7 @@
 #
 import logging
 import traceback
-from typing import Any, Dict, List, Sequence
+from typing import Any, Sequence
 from mcp.server import Server
 from mcp.types import (
     Tool,
@@ -88,7 +88,7 @@ from . import prompthandler
 from . import prompts_ros2
 
 # Prompts handlers
-_prompt_handlers: Dict[str, "prompthandler.BasePromptHandler"] = {}
+_prompt_handlers: dict[str, "prompthandler.BasePromptHandler"] = {}
 
 
 def add_prompt_handler(handler: "prompthandler.BasePromptHandler") -> None:
@@ -101,12 +101,13 @@ def get_prompt_handler(name: str) -> "prompthandler.BasePromptHandler | None":
     return _prompt_handlers.get(name)
 
 
-def list_prompt_handlers() -> List["prompthandler.BasePromptHandler"]:
+def list_prompt_handlers() -> list["prompthandler.BasePromptHandler"]:
     return list(_prompt_handlers.values())
 
 # Place for adding prompts
 add_prompt_handler(prompts_ros2.DroneMissionWithMAVROS2Prompt())
 add_prompt_handler(prompts_ros2.Nav2NavigateToPosePrompt())
+add_prompt_handler(prompts_ros2.DroneSimpleTakeoffPrompt())
 
 # Functions to handle list and getting prompts
 @app.list_prompts()

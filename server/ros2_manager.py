@@ -12,7 +12,7 @@
 import rclpy
 from rclpy.node import Node
 import importlib
-from typing import Any, Optional
+from typing import Any
 from rclpy.serialization import deserialize_message
 from rosidl_runtime_py import get_interfaces
 from rosidl_runtime_py.utilities import get_service, get_message
@@ -322,8 +322,8 @@ class ROS2Manager:
     def subscribe_topic(
         self,
         topic_name: str,
-        duration: Optional[float] = None,
-        message_limit: Optional[int] = None,
+        duration: float | None = None,
+        message_limit: int | None = None,
     ) -> dict:
         import time
         from rclpy.task import Future

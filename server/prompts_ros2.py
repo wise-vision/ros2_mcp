@@ -222,3 +222,143 @@ class Nav2NavigateToPosePrompt(prompthandler.BasePromptHandler):
                 ),
             ],
         )
+
+class DroneSimpleTakeoffPrompt(prompthandler.BasePromptHandler):
+    def __init__(self) -> None:
+        super().__init__(
+            name="drone-simple-takeoff",
+            description=(
+                "User provides target_alt (meters relative to HOME) and land_after (boolean). "
+                "The agent builds a simple mission: TAKEOFF to target_alt, optionally LAND at HOME. "
+                "All coordinates are treated as relative to HOME, frame=3 for consistency."
+            ),
+            args=[
+                prompthandler.ArgSpec(
+                    "target_alt",
+                    "Target altitude in meters above HOME (MAV_FRAME=3)",
+                    True,
+                    "number"
+                ),
+                prompthandler.ArgSpec(
+                    "land_after",
+                    "Whether the drone should land after reaching target_alt (true/false)",
+                    True,
+                    "boolean",
+                    enum=[True, False],
+                    default=True
+                ),
+            ],
+            messages_template=[
+                ("assistant",
+                 "You are an MCP agent controlling a drone via ROS 2 + MAVROS2 with ArduPilot autopilot. "
+                 "You must construct and upload a simple mission using MAV_FRAME_GLOBAL_RELATIVE_ALT (frame=3). "
+                 "\n"
+                 "BEFORE EACH SERVICE CALL - MANDATORY VERIFICATION:\n"
+                 "   1. Call 'ros2_service_list' to verify the service exists and get its type\n"
+                 "   2. Call 'ros2_interface_list' to get available message/service types\n"
+                 "   3. CRITICALLY IMPORTANT: Use the service type from step 1 to inspect its request fields\n"
+                 "      - This tells you EXACTLY what fields the service expects\n"
+                 "      - Match your request data structure to these exact fields\n"
+                 "   4. Only after verifying all fields, call the service with correct structure\n"
+                 "\n"
+                 "Execute the following sequence EXACTLY in this order:\n"
+                 "\n"
+                 "STEP 1 - ARM THE VEHICLE:\n"
+                 "   a) Call ros2_service_list to find /mavros/cmd/arming and get its service type\n"
+                 "   b) Call ros2_interface_list to verify the service type exists\n"
+                 "   c) Inspect the service request fields to see what structure it expects\n"
+                 "   d) Call service: /mavros/cmd/arming\n"
+                 "      Expected Type: std_srvs/srv/SetBool\n"
+                 "      Expected Fields: {{ data: true }}\n"
+                 "      (Verify fields match the inspection from step c)\n"
+                 "   e) Wait for confirmation that arming succeeded.\n"
+                 "\n"
+                 "STEP 2 - BUILD MISSION WAYPOINTS:\n"
+                 "   Create waypoint list with the following items:\n"
+                 "   \n"
+                 "   Waypoint #0 (TAKEOFF):\n"
+                 "   - frame: 3 (MAV_FRAME_GLOBAL_RELATIVE_ALT)\n"
+                 "   - command: 22 (MAV_CMD_NAV_TAKEOFF)\n"
+                 "   - is_current: true\n"
+                 "   - autocontinue: true\n"
+                 "   - param1: 0.0 (pitch angle, not used)\n"
+                 "   - param2: 0.0 (empty)\n"
+                 "   - param3: 0.0 (empty)\n"
+                 "   - param4: 0.0 (yaw angle, not used)\n"
+                 "   - x_lat: 0.0 (latitude, 0 means current position for ArduPilot)\n"
+                 "   - y_long: 0.0 (longitude, 0 means current position for ArduPilot)\n"
+                 "   - z_alt: {target_alt} (target altitude in meters above HOME)\n"
+                 "   \n"
+                 "   Waypoint #1 (LAND - only if land_after is true):\n"
+                 "   - frame: 3 (MAV_FRAME_GLOBAL_RELATIVE_ALT)\n"
+                 "   - command: 21 (MAV_CMD_NAV_LAND)\n"
+                 "   - is_current: false\n"
+                 "   - autocontinue: true\n"
+                 "   - param1: 0.0 (abort altitude, not used)\n"
+                 "   - param2: 0.0 (land mode, precision land)\n"
+                 "   - param3: 0.0 (empty)\n"
+                 "   - param4: 0.0 (yaw angle, not used)\n"
+                 "   - x_lat: 0.0 (latitude, 0 means current position for ArduPilot)\n"
+                 "   - y_long: 0.0 (longitude, 0 means current position for ArduPilot)\n"
+                 "   - z_alt: 0.0 (ground level)\n"
+                 "\n"
+                 "STEP 3 - UPLOAD MISSION:\n"
+                 "   a) Call ros2_service_list to find /mavros/mission/push and get its service type\n"
+                 "   b) Call ros2_interface_list to verify mavros_msgs/srv/WaypointPush exists\n"
+                 "   c) Inspect WaypointPush service request fields to see exact structure required:\n"
+                 "      - Check what fields are in the request (e.g., start_index, waypoints)\n"
+                 "      - Check what fields are in each Waypoint message structure\n"
+                 "      - Verify field names and types match what you plan to send\n"
+                 "   d) Call service: /mavros/mission/push\n"
+                 "      Expected Type: mavros_msgs/srv/WaypointPush\n"
+                 "      Expected Fields: {{ start_index: 0, waypoints: [list of waypoints from Step 2] }}\n"
+                 "      (Ensure structure matches inspection from step c)\n"
+                 "   e) IMPORTANT: Upload mission ONLY ONCE. Do not clear or reset after upload.\n"
+                 "   f) Wait for confirmation that upload succeeded.\n"
+                 "\n"
+                 "STEP 4 - SET MODE TO AUTO:\n"
+                 "   a) Call ros2_service_list to find /mavros/set_mode and get its service type\n"
+                 "   b) Call ros2_interface_list to verify mavros_msgs/srv/SetMode exists\n"
+                 "   c) Inspect SetMode service request fields to see exact structure required:\n"
+                 "      - Check if it needs base_mode, custom_mode, or other fields\n"
+                 "      - Verify field names and types\n"
+                 "   d) Call service: /mavros/set_mode\n"
+                 "      Expected Type: mavros_msgs/srv/SetMode\n"
+                 "      Expected Fields: {{ base_mode: 0, custom_mode: \"AUTO\" }}\n"
+                 "      (Ensure structure matches inspection from step c)\n"
+                 "   e) Wait for confirmation that mode change succeeded.\n"
+                 "\n"
+                 "CRITICAL NOTES:\n"
+                 "- ALWAYS call ros2_service_list FIRST for EACH service to verify it exists and get its type\n"
+                 "- ALWAYS call ros2_interface_list to verify the service type is available\n"
+                 "- ALWAYS inspect the service request fields BEFORE calling the service\n"
+                 "- Use the inspection results to ensure your request structure is correct\n"
+                 "- Check that field names, types, and structure match exactly what the service expects\n"
+                 "- If the actual service structure differs from expectations, adapt to the actual structure\n"
+                 "- Use frame=3 for ALL waypoints (MAV_FRAME_GLOBAL_RELATIVE_ALT)\n"
+                 "- For ArduPilot: x=0, y=0 means 'use current position'\n"
+                 "- Set is_current=true ONLY for the first waypoint (TAKEOFF)\n"
+                 "- Do NOT call mission clear/reset services after upload\n"
+                 "- Execute steps sequentially and wait for each service call to complete\n"
+                 "- Do not reveal technical implementation details to the user\n"
+                 "- Only inform user about high-level progress (e.g., 'Verifying services...', 'Arming drone...', 'Mission uploaded', 'Starting mission')\n"
+                 "- If a service is not available or structure is unexpected, inform the user and do not proceed"
+                ),
+                ("assistant",
+                 "Understood. I will execute the mission sequence with thorough verification:\n"
+                 "1. For EACH service call, I will:\n"
+                 "   - Check service availability (ros2_service_list)\n"
+                 "   - Verify interface exists (ros2_interface_list)\n"
+                 "   - Inspect exact request fields structure\n"
+                 "   - Match my request to the actual structure\n"
+                 "2. Then proceed with:\n"
+                 "   - Arm the vehicle\n"
+                 "   - Build mission with TAKEOFF to {target_alt}m" + 
+                 (" and LAND" if "{land_after}" == "True" else "") + "\n"
+                 "   - Upload mission once\n"
+                 "   - Set mode to AUTO\n"
+                 "Ready to proceed with full verification."),
+                ("user",
+                 "Execute takeoff mission: target_alt={target_alt} meters, land_after={land_after}")
+            ],
+        )
