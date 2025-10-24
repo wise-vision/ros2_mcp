@@ -28,6 +28,8 @@ A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS2**
 You’re welcome to try the **Pro version** with extra features and priority support.  
 👉 [Get Pro here](https://app.easy.tools/ec/wisevision/wisevision-mcp-ros-2-pro)
 
+# 🚀 Drone Mission Using Prompts
+![Drone mission demo](docs/assets/drone_mcp_prompts.mp4)
 
 # 🌍 Real-world examples:
 ![Demo](docs/assets/mcp-ros2-server.gif)
@@ -119,3 +121,5 @@ npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_server_ros2 run 
 ```
 
 Upon launching, the Inspector will display a URL that you can access in your browser to begin debugging.
+
+npx @modelcontextprotocol/inspector uv --directory /home/cezary/mcp_server_ros_2 run mcp_ros_2_server
