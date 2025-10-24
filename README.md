@@ -29,7 +29,7 @@ You’re welcome to try the **Pro version** with extra features and priority sup
 👉 [Get Pro here](https://app.easy.tools/ec/wisevision/wisevision-mcp-ros-2-pro)
 
 # 🚀 Drone Mission Using Prompts
-![Drone mission demo](docs/assets/drone_mcp_prompts.mp4)
+![Drone mission demo](docs/assets/drone_mcp_prompts.gif)
 
 # 🌍 Real-world examples:
 ![Demo](docs/assets/mcp-ros2-server.gif)
