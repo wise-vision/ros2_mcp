@@ -18,6 +18,8 @@ RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-example-interfaces \
     ros-${ROS_DISTRO}-rclpy \
     ros-${ROS_DISTRO}-ros2cli \
+    ros-${ROS_DISTRO}-nav2-msgs \
+    ros-${ROS_DISTRO}-mavros-msgs \
     ros-${ROS_DISTRO}-action-tutorials-interfaces \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*

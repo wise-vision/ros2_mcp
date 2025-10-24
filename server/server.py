@@ -10,14 +10,15 @@
 #
 import logging
 import traceback
-from typing import Any
-from collections.abc import Sequence
+from typing import Any, Sequence
 from mcp.server import Server
 from mcp.types import (
     Tool,
     TextContent,
     ImageContent,
     EmbeddedResource,
+    Prompt,
+    GetPromptResult,
 )
 
 from . import toolhandler
@@ -81,3 +82,49 @@ async def call_tool(
         logging.error(traceback.format_exc())
         logging.error(f"Error during call_tool: {e}")
         raise RuntimeError(f"Caught Exception. Error: {str(e)}")
+
+# Prompts
+from . import prompthandler
+from . import prompts_ros2
+
+# Prompts handlers
+_prompt_handlers: dict[str, "prompthandler.BasePromptHandler"] = {}
+
+
+def add_prompt_handler(handler: "prompthandler.BasePromptHandler") -> None:
+    if handler.name in _prompt_handlers:
+        raise ValueError(f"Prompt already registered: {handler.name}")
+    _prompt_handlers[handler.name] = handler
+
+
+def get_prompt_handler(name: str) -> "prompthandler.BasePromptHandler | None":
+    return _prompt_handlers.get(name)
+
+
+def list_prompt_handlers() -> list["prompthandler.BasePromptHandler"]:
+    return list(_prompt_handlers.values())
+
+# Place for adding prompts
+add_prompt_handler(prompts_ros2.DroneMissionWithMAVROS2Prompt())
+add_prompt_handler(prompts_ros2.Nav2NavigateToPosePrompt())
+add_prompt_handler(prompts_ros2.DroneSimpleTakeoffPrompt())
+
+# Functions to handle list and getting prompts
+@app.list_prompts()
+async def handle_list_prompts() -> list[Prompt]:
+    return [ph.get_prompt_description() for ph in list_prompt_handlers()]
+
+@app.get_prompt()
+async def handle_get_prompt(
+    name: str, arguments: dict[str, str] | None
+) -> GetPromptResult:
+    try:
+        ph = get_prompt_handler(name)
+        if not ph:
+            raise ValueError(f"Unknown prompt: {name}")
+        return ph.render(arguments)
+    except Exception as e:
+        logging.error(traceback.format_exc())
+        logging.error(f"Error during get_prompt: {e}")
+        raise RuntimeError(f"Caught Exception. Error: {str(e)}")
+    

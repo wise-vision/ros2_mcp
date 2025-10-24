@@ -11,7 +11,6 @@ import rclpy
 import argparse
 import asyncio
 from .server import app
-from mcp.server import FastMCP
 from .transport import TransportMixin
 
 

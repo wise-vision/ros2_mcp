@@ -49,6 +49,21 @@ Feel free to contribute or reach out for support! Write issues, submit PRs, or j
 - Get fields from message types
 - Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
 
+# 🤖 Available Prompts
+
+## ✈️ drone-mavros2-mission
+
+Control a drone with MAVROS2 using just target coordinates (dest_x, dest_y, dest_z) and simple flags (return_to_launch, land_at_launch).
+
+➡️ The prompt builds the full MAVLink mission (TAKEOFF, WAYPOINT, RTL, LAND) and switches to AUTO.
+
+## 🗺️ nav2-navigate-to-pose
+
+Navigate a ground robot with Nav2 by providing only x, y, and yaw in the map frame.
+
+➡️ The prompt sends a NavigateToPose goal, handles result/timeout, streams feedback, and cancels if needed.
+
+### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
 
 **Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
 
