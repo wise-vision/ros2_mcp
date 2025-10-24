@@ -30,7 +30,7 @@ import time
 from rclpy.task import Future
 from builtin_interfaces.msg import Time, Duration
 from std_msgs.msg import Header
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSDurabilityPolicy
 from rclpy.qos import QoSPresetProfiles
@@ -424,6 +424,35 @@ class ROS2Manager:
                     })
                 except Exception as e:
                         images.append({"error": f"Failed to process image: {str(e)}"})
+        
+            return {
+                "messages": images,
+                "count": len(received),
+                "duration": round(elapsed, 2),
+            }
+        elif msg_type == "sensor_msgs/msg/CompressedImage":
+            images = []
+            for ros_msg in received:
+                try:
+                    pil_img = PILImage.open(io.BytesIO(ros_msg.data))
+                    if pil_img.mode not in ("RGB", "RGBA"):
+                        pil_img = pil_img.convert("RGB")
+
+                    buffer = io.BytesIO()
+                    pil_img.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+
+                    images.append(
+                        {
+                            "type": "image",
+                            "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            "mimeType": "image/png",
+                        }
+                    )
+                except Exception as e:
+                    images.append(
+                        {"error": f"Failed to process compressed image: {str(e)}"}
+                    )
             return {
                 "messages": images,
                 "count": len(received),
