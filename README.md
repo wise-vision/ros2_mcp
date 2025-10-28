@@ -29,6 +29,7 @@ A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2*
 
 
 # 🤖 Available Prompts
+### 📘 Want to create a custom prompt? [Check the guide here](/docs/CREATE_PROMPT.md)
 
 ## ✈️ drone-mavros2-mission
 
@@ -43,6 +44,8 @@ Navigate a ground robot with Nav2 by providing only x, y, and yaw in the map fra
 ➡️ The prompt sends a NavigateToPose goal, handles result/timeout, streams feedback, and cancels if needed.
 
 ### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
+
+
 
 
 **Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
