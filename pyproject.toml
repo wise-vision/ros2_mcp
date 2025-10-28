@@ -13,6 +13,7 @@ dependencies = [
     "numpy>=1.21,<2.0", 
     "PyYAML",
     "python-dateutil",
+    "pillow",
     "lark"
 ]
 

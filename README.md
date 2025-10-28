@@ -11,6 +11,42 @@
 
 A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2**. This server enables AI tooling to connect with **ROS 2** nodes, topics, and services using the **MCP** standard over **stdio**. Designed to be **the easiest** **ROS 2** MCP server to configure.
 
+# ✨ Tools
+- List available topics 
+- List available services
+- Lists available actions with their types and request fields 
+- Call services
+- Subscribe to topics to collect messages
+- Publish messages to topics
+- Echo messages on topics
+- Get fields from message types
+- Sends an action goal and optionally waits for the result
+- Requests the result of an action goal
+- Subscribes to feedback messages from an action
+- Subscribes to status updates of an action
+- Cancels a specific goal or all active goals
+- Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
+
+
+# 🤖 Available Prompts
+
+## ✈️ drone-mavros2-mission
+
+Control a drone with MAVROS2 using just target coordinates (dest_x, dest_y, dest_z) and simple flags (return_to_launch, land_at_launch).
+
+➡️ The prompt builds the full MAVLink mission (TAKEOFF, WAYPOINT, RTL, LAND) and switches to AUTO.
+
+## 🗺️ nav2-navigate-to-pose
+
+Navigate a ground robot with Nav2 by providing only x, y, and yaw in the map frame.
+
+➡️ The prompt sends a NavigateToPose goal, handles result/timeout, streams feedback, and cancels if needed.
+
+### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
+
+
+**Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
+
 ## 🎯 Why Choose This MCP Server?
 
 **Save hours of development time** with native AI integration for your ROS 2 projects:
@@ -35,38 +71,11 @@ If you find this useful, please ⭐ star the repo — it helps others discover i
 🚀 **Enjoying this project?**  
 Feel free to contribute or reach out for support! Write issues, submit PRs, or join our [Discord community](https://discord.gg/9aSw6HbUaw) to connect with other ROS 2 and AI enthusiasts.
 
+# 🚀 Drone Mission Using Prompts
+![Drone mission demo](docs/assets/drone_mcp_prompts.gif)
 
 # 🌍 Real-world examples:
 ![Demo](docs/assets/mcp-ros2-server.gif)
-
-# ✨ Features
-- List available topics 
-- List available services 
-- Call services
-- Subscribe to topics to collect messages
-- Publish messages to topics
-- Echo messages on topics
-- Get fields from message types
-- Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
-
-# 🤖 Available Prompts
-
-## ✈️ drone-mavros2-mission
-
-Control a drone with MAVROS2 using just target coordinates (dest_x, dest_y, dest_z) and simple flags (return_to_launch, land_at_launch).
-
-➡️ The prompt builds the full MAVLink mission (TAKEOFF, WAYPOINT, RTL, LAND) and switches to AUTO.
-
-## 🗺️ nav2-navigate-to-pose
-
-Navigate a ground robot with Nav2 by providing only x, y, and yaw in the map frame.
-
-➡️ The prompt sends a NavigateToPose goal, handles result/timeout, streams feedback, and cancels if needed.
-
-### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
-
-**Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
-
 
 # ⚙️ Installation
 

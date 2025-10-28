@@ -12,6 +12,7 @@ from typing import Optional
 from mcp.types import (
     Tool,
     TextContent,
+    ImageContent,
     EmbeddedResource,
     LoggingLevel,
 )
@@ -190,7 +191,7 @@ class ROS2TopicSubscribe(toolhandler.ToolHandler):
             },
         )
 
-    def run_tool(self, args: dict) -> Sequence[TextContent | EmbeddedResource]:
+    def run_tool(self, args: dict) -> Sequence[TextContent | ImageContent]:
 
         topic_name = args.get("topic_name")
         duration = args.get("duration")
@@ -201,11 +202,54 @@ class ROS2TopicSubscribe(toolhandler.ToolHandler):
             message_limit = None
 
         ros = get_ros()
-        messages = ros.subscribe_topic(
+        result = ros.subscribe_topic(
             topic_name, duration, message_limit
         )
 
-        return [TextContent(type="text", text=json.dumps(messages, indent=2))]
+        outputs: list[TextContent | ImageContent] = []
+
+        # Handle error case
+        if isinstance(result, dict) and "error" in result:
+            outputs.append(
+                TextContent(
+                    type="text",
+                    text=f"ERROR: {result['error']}"
+                )
+            )
+            return outputs
+
+        # Handle messages
+        messages = result if isinstance(result, list) else result.get("messages", [])
+        count = len(messages) if isinstance(result, list) else result.get("count", 0)
+        
+        outputs.append(
+            TextContent(
+                type="text",
+                text=f"[{topic_name}] {count} messages received."
+            )
+        )
+
+        for i, msg in enumerate(messages):
+            # Check if message is an image
+            if (
+                isinstance(msg, dict)
+                and msg.get("type") == "image"
+                and "data" in msg
+                and "mimeType" in msg
+            ):
+                outputs.append(
+                    ImageContent(
+                        type="image",
+                        data=msg["data"],
+                        mimeType=msg["mimeType"]
+                    )
+                )
+            else:
+                # Regular text message
+                formatted = json.dumps({f"{topic_name}#{i}": msg}, indent=2)
+                outputs.append(TextContent(type="text", text=formatted))
+
+        return outputs
 
 
 # Legacy support for wisevision_data_black_box

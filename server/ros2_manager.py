@@ -23,10 +23,14 @@ from rclpy.action import get_action_names_and_types
 from dateutil import parser
 import numpy as np
 import array
+from PIL import Image as PILImage
+import base64
+import io
 import time
 from rclpy.task import Future
 from builtin_interfaces.msg import Time, Duration
 from std_msgs.msg import Header
+from sensor_msgs.msg import Image, CompressedImage
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSDurabilityPolicy
 from rclpy.qos import QoSPresetProfiles
@@ -363,10 +367,8 @@ class ROS2Manager:
         tmp_node = Node("mcp_subscribe_tmp")
         received = []
         done_future = Future()
-        try:
-            qos = self.get_qos_profile_for_topic(tmp_node, topic_name)
-        finally:
-            tmp_node.destroy_node()
+        
+        qos = self.get_qos_profile_for_topic(tmp_node, topic_name)
 
         def callback(msg):
             received.append(msg)
@@ -390,11 +392,78 @@ class ROS2Manager:
 
         elapsed = time.time() - start
 
-        return {
-            "messages": [self.serialize_msg(msg) for msg in received],
-            "count": len(received),
-            "duration": round(elapsed, 2),
-        }
+        if msg_type == "sensor_msgs/msg/Image":
+            images = []
+            for ros_msg in received:
+                if ros_msg.encoding not in ("rgb8", "bgr8", "rgba8"):
+                    images.append({"error": f"Unsupported encoding: {ros_msg.encoding}"})
+                    continue
+
+                try:
+                    if ros_msg.encoding == "rgba8":
+                        img_array = np.frombuffer(ros_msg.data, dtype=np.uint8).reshape(
+                            (ros_msg.height, ros_msg.width, 4)
+                        )
+                        pil_img = PILImage.fromarray(img_array, mode="RGBA")
+                    else:
+                        img_array = np.frombuffer(ros_msg.data, dtype=np.uint8).reshape(
+                            (ros_msg.height, ros_msg.width, 3)
+                        )
+                        if ros_msg.encoding == "bgr8":
+                            img_array = img_array[..., ::-1]  # Convert BGR to RGB
+                        pil_img = PILImage.fromarray(img_array, mode="RGB")
+
+                    buffer = io.BytesIO()
+                    pil_img.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+
+                    images.append({
+                        "type": "image",
+                        "data": base64.b64encode(image_bytes).decode("utf-8"),
+                        "mimeType": "image/png"
+                    })
+                except Exception as e:
+                        images.append({"error": f"Failed to process image: {str(e)}"})
+        
+            return {
+                "messages": images,
+                "count": len(received),
+                "duration": round(elapsed, 2),
+            }
+        elif msg_type == "sensor_msgs/msg/CompressedImage":
+            images = []
+            for ros_msg in received:
+                try:
+                    pil_img = PILImage.open(io.BytesIO(ros_msg.data))
+                    if pil_img.mode not in ("RGB", "RGBA"):
+                        pil_img = pil_img.convert("RGB")
+
+                    buffer = io.BytesIO()
+                    pil_img.save(buffer, format="PNG")
+                    image_bytes = buffer.getvalue()
+
+                    images.append(
+                        {
+                            "type": "image",
+                            "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            "mimeType": "image/png",
+                        }
+                    )
+                except Exception as e:
+                    images.append(
+                        {"error": f"Failed to process compressed image: {str(e)}"}
+                    )
+            return {
+                "messages": images,
+                "count": len(received),
+                "duration": round(elapsed, 2),
+            }
+        else:
+            return {
+                "messages": [self.serialize_msg(msg) for msg in received],
+                "count": len(received),
+                "duration": round(elapsed, 2),
+            }
 
     def call_get_messages_service_any(self, params: dict) -> dict:
         service_type = get_service("lora_msgs/srv/GetMessages")
