@@ -88,6 +88,9 @@ Follow the [installation guide](installation/README.md) for step-by-step instruc
 - [💻 Install in Warp](installation/README.md#configure-warp)
 - [🐳 Build Docker Image locally](installation/README.md#build-docker-image-locally)
 
+## 💡 Want to try it in simulation?
+[Check out the Gazebo Drone Demo section](docs/DEMO_DRONE.md)
+
 
 
 ### 🔧 ROS 2 Tools
