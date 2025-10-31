@@ -1075,3 +1075,408 @@ def test_publish_to_topic_uses_selected_qos(mock_node_cls):
     assert passed_qos.durability == QoSDurabilityPolicy.TRANSIENT_LOCAL
     assert passed_qos.history == QoSHistoryPolicy.KEEP_LAST
     assert passed_qos.depth == 5
+
+# Test for list_interfaces
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.get_interfaces")
+def test_list_interfaces_success(mock_get_interfaces, mock_node_cls):
+    mock_get_interfaces.return_value = {
+        "std_msgs": ["msg/String", "msg/Int32"],
+        "example_interfaces": ["srv/AddTwoInts"]
+    }
+    
+    manager = ROS2Manager()
+    result = manager.list_interfaces()
+    
+    assert "std_msgs/msg/String" in result
+    assert "std_msgs/msg/Int32" in result
+    assert "example_interfaces/srv/AddTwoInts" in result
+    assert len(result) == 3
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.get_interfaces")
+def test_list_interfaces_empty(mock_get_interfaces, mock_node_cls):
+    mock_get_interfaces.return_value = {}
+    
+    manager = ROS2Manager()
+    result = manager.list_interfaces()
+    
+    assert result == []
+
+
+# Test for get_request_fields with various message types
+@patch("server.ros2_manager.ServiceNode")
+def test_get_request_fields_msg_two_part(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.get_request_fields("std_msgs/String")
+    
+    assert "data" in result
+    assert result["data"] == "string"
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_get_request_fields_msg_three_part(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.get_request_fields("std_msgs/msg/String")
+    
+    assert "data" in result
+    assert result["data"] == "string"
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_get_request_fields_srv_three_part(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.get_request_fields("example_interfaces/srv/AddTwoInts")
+    
+    assert "a" in result
+    assert "b" in result
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_get_request_fields_invalid_format(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.get_request_fields("invalid")
+    
+    assert "error" in result
+    assert "Invalid type format" in result["error"]
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_get_request_fields_nonexistent_package(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.get_request_fields("fake_pkg/msg/FakeMsg")
+    
+    assert "error" in result
+    assert "Failed to load" in result["error"]
+
+
+# Test subscribe_topic with various scenarios
+@patch("server.ros2_manager.ServiceNode")
+def test_subscribe_topic_no_types(mock_node_cls):
+    mock_node = MagicMock()
+    mock_node.get_topic_names_and_types.return_value = [("/sensor", [])]
+    mock_node_cls.return_value = mock_node
+
+    manager = ROS2Manager()
+    manager.node = mock_node
+
+    result = manager.subscribe_topic("/sensor")
+    assert "error" in result
+    assert "no associated message types" in result["error"]
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_subscribe_topic_invalid_message_format(mock_node_cls):
+    mock_node = MagicMock()
+    mock_node.get_topic_names_and_types.return_value = [("/sensor", ["invalid"])]
+    mock_node_cls.return_value = mock_node
+
+    manager = ROS2Manager()
+    manager.node = mock_node
+
+    result = manager.subscribe_topic("/sensor")
+    assert "error" in result
+    assert "Invalid message type format" in result["error"]
+
+
+# Test call_service edge cases
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+def test_call_service_invalid_format(mock_spin, mock_node_cls):
+    manager = ROS2Manager()
+    
+    result = manager.call_service("/test", "invalid_format", {})
+    
+    assert "error" in result
+    assert "Invalid service type format" in result["error"]
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+def test_call_service_timeout(mock_spin, mock_node_cls):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        manager = ROS2Manager()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = False
+        mock_node.create_client.return_value = mock_client
+
+        result = manager.call_service(
+            "/test_service",
+            "example_interfaces/srv/AddTwoInts",
+            {"a": 1, "b": 2}
+        )
+
+        assert "error" in result
+        assert "not available" in result["error"]
+
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+def test_call_service_failed_result(mock_spin, mock_node_cls):
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        manager = ROS2Manager()
+
+        mock_client = MagicMock()
+        mock_client.wait_for_service.return_value = True
+        mock_future = MagicMock()
+        mock_future.result.return_value = None
+        mock_client.call_async.return_value = mock_future
+        mock_node.create_client.return_value = mock_client
+
+        result = manager.call_service(
+            "/test_service",
+            "example_interfaces/srv/AddTwoInts",
+            {"a": 1, "b": 2}
+        )
+
+        assert "error" in result
+        assert "Service call failed" in result["error"]
+
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+# Test serialize_msg with more complex types
+def test_serialize_msg_memoryview():
+    rclpy.init()
+    try:
+        import array
+        data = array.array('d', [1.0, 2.0, 3.0])
+        mv = memoryview(data)
+        
+        manager = ROS2Manager()
+        result = manager.serialize_msg(mv)
+        
+        assert isinstance(result, list)
+        assert result == [1.0, 2.0, 3.0]
+    finally:
+        rclpy.shutdown()
+
+
+def test_serialize_msg_bytes():
+    rclpy.init()
+    try:
+        data = b"hello"
+        
+        manager = ROS2Manager()
+        result = manager.serialize_msg(data)
+        
+        assert isinstance(result, list)
+        assert result == [104, 101, 108, 108, 111]
+    finally:
+        rclpy.shutdown()
+
+
+def test_serialize_msg_bytearray():
+    rclpy.init()
+    try:
+        data = bytearray(b"test")
+        
+        manager = ROS2Manager()
+        result = manager.serialize_msg(data)
+        
+        assert isinstance(result, list)
+    finally:
+        rclpy.shutdown()
+
+
+def test_serialize_msg_primitives():
+    rclpy.init()
+    try:
+        manager = ROS2Manager()
+        
+        assert manager.serialize_msg(42) == 42
+        assert manager.serialize_msg(3.14) == 3.14
+        assert manager.serialize_msg("hello") == "hello"
+        assert manager.serialize_msg(True) == True
+        assert manager.serialize_msg(None) is None
+    finally:
+        rclpy.shutdown()
+
+
+def test_serialize_msg_list():
+    rclpy.init()
+    try:
+        manager = ROS2Manager()
+        result = manager.serialize_msg([1, 2, 3])
+        
+        assert result == [1, 2, 3]
+    finally:
+        rclpy.shutdown()
+
+
+def test_serialize_msg_dict():
+    rclpy.init()
+    try:
+        manager = ROS2Manager()
+        result = manager.serialize_msg({"a": 1, "b": 2})
+        
+        assert result == {"a": 1, "b": 2}
+    finally:
+        rclpy.shutdown()
+
+
+# Test publish_to_topic edge cases
+@patch("server.ros2_manager.ServiceNode")
+def test_publish_to_topic_two_part_format(mock_node_cls):
+    from std_msgs.msg import String
+
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        manager = ROS2Manager()
+
+        mock_publisher = MagicMock()
+        mock_node.create_publisher.return_value = mock_publisher
+
+        result = manager.publish_to_topic("/test", "std_msgs/String", {"data": "Hi"})
+
+        assert result["status"] == "published"
+        mock_publisher.publish.assert_called_once()
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_publish_to_topic_invalid_format_single_part(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.publish_to_topic("/test", "invalid", {"data": "test"})
+    
+    assert "error" in result
+    # Should match the actual error message from the code
+    assert "valid ROS2 message type" in result["error"]
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_publish_to_topic_nonexistent_package(mock_node_cls):
+    manager = ROS2Manager()
+    result = manager.publish_to_topic("/test", "fake_pkg/msg/FakeMsg", {"data": "test"})
+    
+    assert "error" in result
+    assert "Failed to load" in result["error"]
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.importlib.import_module")
+def test_publish_to_topic_publish_exception(mock_import, mock_node_cls):
+    from std_msgs.msg import String
+    
+    try:
+        if not rclpy.ok():
+            rclpy.init()
+
+        mock_module = MagicMock()
+        mock_module.String = String
+        mock_import.return_value = mock_module
+
+        mock_node = MagicMock()
+        mock_node_cls.return_value = mock_node
+
+        manager = ROS2Manager()
+
+        mock_publisher = MagicMock()
+        mock_publisher.publish.side_effect = Exception("Publish failed")
+        mock_node.create_publisher.return_value = mock_publisher
+
+        result = manager.publish_to_topic("/test", "std_msgs/msg/String", {"data": "test"})
+
+        assert "error" in result
+        assert "Failed to publish" in result["error"]
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+# Test QoS profile determination
+@patch("server.ros2_manager.ServiceNode")
+def test_get_qos_profile_no_publishers(mock_node_cls):
+    from rclpy.qos import QoSPresetProfiles
+    
+    mock_node = MagicMock()
+    mock_node.get_publishers_info_by_topic.return_value = []
+    mock_node_cls.return_value = mock_node
+
+    manager = ROS2Manager()
+    qos = manager.get_qos_profile_for_topic(manager.node, "/test_topic")
+
+    assert qos == QoSPresetProfiles.SYSTEM_DEFAULT.value
+
+
+@patch("server.ros2_manager.ServiceNode")
+def test_get_qos_profile_all_reliable(mock_node_cls):
+    from rclpy.qos import QoSReliabilityPolicy
+    
+    mock_node = MagicMock()
+    
+    mock_pub_info = MagicMock()
+    mock_pub_info.qos_profile.reliability = QoSReliabilityPolicy.RELIABLE
+    mock_pub_info.qos_profile.durability = MagicMock()
+    
+    mock_node.get_publishers_info_by_topic.return_value = [mock_pub_info, mock_pub_info]
+    mock_node_cls.return_value = mock_node
+
+    manager = ROS2Manager()
+    qos = manager.get_qos_profile_for_topic(manager.node, "/test_topic")
+
+    assert qos.reliability == QoSReliabilityPolicy.RELIABLE
+
+
+# Test shutdown
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.ok")
+@patch("server.ros2_manager.rclpy.shutdown")
+def test_shutdown_success(mock_shutdown, mock_ok, mock_node_cls):
+    mock_ok.return_value = True
+    
+    manager = ROS2Manager()
+    manager.shutdown()
+    
+    mock_shutdown.assert_called_once()
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.ok")
+@patch("server.ros2_manager.rclpy.shutdown")
+def test_shutdown_not_initialized(mock_shutdown, mock_ok, mock_node_cls):
+    mock_ok.return_value = False
+    
+    manager = ROS2Manager()
+    manager.shutdown()
+    
+    mock_shutdown.assert_not_called()
+
+
+@patch("server.ros2_manager.ServiceNode")
+@patch("server.ros2_manager.rclpy.ok")
+@patch("server.ros2_manager.rclpy.shutdown")
+def test_shutdown_exception(mock_shutdown, mock_ok, mock_node_cls):
+    mock_ok.return_value = True
+    mock_shutdown.side_effect = Exception("Shutdown error")
+    
+    manager = ROS2Manager()
+    # Should not raise exception
+    manager.shutdown()
