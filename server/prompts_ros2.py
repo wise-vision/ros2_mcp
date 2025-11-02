@@ -362,3 +362,91 @@ class DroneSimpleTakeoffPrompt(prompthandler.BasePromptHandler):
                  "Execute takeoff mission: target_alt={target_alt} meters, land_after={land_after}")
             ],
         )
+
+class DroneCircleFlightPrompt(prompthandler.BasePromptHandler):
+    def __init__(self) -> None:
+        super().__init__(
+            name="drone-circle-flight",
+            description=(
+                "User provides circle_radius (meters) and linear_velocity (m/s). "
+                "The agent will auto-detect the cmd_vel topic and fly the drone in a circle "
+                "with the specified radius using velocity commands."
+            ),
+            args=[
+                prompthandler.ArgSpec(
+                    "circle_radius",
+                    "Radius of the circle in meters",
+                    True,
+                    "number",
+                    default=3.0
+                ),
+                prompthandler.ArgSpec(
+                    "linear_velocity",
+                    "Forward velocity in m/s",
+                    True,
+                    "number",
+                    default=1.0
+                ),
+            ],
+            messages_template=[
+                ("assistant",
+                 "You are an MCP agent controlling a drone via ROS 2. "
+                 "You will make the drone fly in a circle pattern at its current altitude.\n"
+                 "\n"
+                 "Execute the following sequence:\n"
+                 "\n"
+                 "STEP 1 - DISCOVER CMD_VEL TOPIC:\n"
+                 "   a) Call 'ros2_topic_list' to get all available topics\n"
+                 "   b) Search for a topic with type 'geometry_msgs/msg/Twist' that contains 'cmd_vel' in the name\n"
+                 "   c) If found, use that topic. Common patterns:\n"
+                 "      - /cmd_vel (generic)\n"
+                 "      - /X3/cmd_vel (Gazebo simulation)\n"
+                 "      - /drone/cmd_vel (namespace-based)\n"
+                 "   d) If no cmd_vel topic found, return error to user\n"
+                 "   e) Call 'ros2_get_message_fields' with 'geometry_msgs/msg/Twist' to verify structure\n"
+                 "\n"
+                 "STEP 2 - CALCULATE CIRCLE FLIGHT PARAMETERS:\n"
+                 "   Circle flight uses constant forward velocity and angular velocity:\n"
+                 "   - linear_velocity = {linear_velocity} m/s (forward speed, user provided)\n"
+                 "   - angular_velocity = {linear_velocity} / {circle_radius}\n"
+                 "   - This creates a circle with radius = {circle_radius} meters\n"
+                 "   \n"
+                 "   Example: For radius=3m and linear=1m/s:\n"
+                 "   - angular_velocity = 1.0 / 3.0 = 0.333 rad/s\n"
+                 "\n"
+                 "STEP 3 - START CIRCLE FLIGHT:\n"
+                 "   Publish velocity command:\n"
+                 "   - linear.x = {linear_velocity} (forward)\n"
+                 "   - linear.y = 0.0 (no lateral)\n"
+                 "   - linear.z = 0.0 (maintain current altitude)\n"
+                 "   - angular.z = calculated angular_velocity\n"
+                 "   \n"
+                 "   Inform user: 'Circle flight started with radius {circle_radius}m at {linear_velocity}m/s'\n"
+                 "\n"
+                 "IMPORTANT NOTES:\n"
+                 "- Auto-detect the cmd_vel topic - don't assume a specific name\n"
+                 "- For circle flight: angular_velocity = linear_velocity / radius\n"
+                 "- Use linear.x for forward motion (not linear.y)\n"
+                 "- Use angular.z for rotation around vertical axis\n"
+                 "- Set linear.z=0 to maintain current altitude\n"
+                 "- Provide high-level progress updates to user\n"
+                 "- If cmd_vel topic not found, inform user clearly\n"
+                 "\n"
+                 "CRITICAL: Since you cannot publish continuously in real-time:\n"
+                 "1. Calculate and display the circle parameters to the user\n"
+                 "2. Publish a SINGLE circle-flight velocity command\n"
+                 "3. Explain that this command will make the drone fly in a circle indefinitely\n"
+                 "4. Inform the user they need to publish a STOP command (all zeros) to halt the drone\n"
+                 "5. Provide a reminder: 'To stop, publish all-zero velocities to the cmd_vel topic'"
+                ),
+                ("assistant",
+                 "Understood. I will:\n"
+                 "1. Auto-detect the cmd_vel topic from available topics\n"
+                 "2. Calculate circle parameters (radius={circle_radius}m, linear_vel={linear_velocity}m/s, angular_vel={linear_velocity}/{circle_radius})\n"
+                 "3. Publish the circle-flight velocity command\n"
+                 "4. Inform user that drone will fly in circle until stopped manually\n"
+                 "Ready to execute circle flight pattern."),
+                ("user",
+                 "Fly in circle: radius={circle_radius}m, velocity={linear_velocity}m/s")
+            ],
+        )
