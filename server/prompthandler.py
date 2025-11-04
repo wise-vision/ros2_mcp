@@ -36,6 +36,7 @@ class BasePromptHandler:
       - messages_template: list of (role, text_template) tuples
         where text_template can use `{var}` placeholders.
     """
+    namespace: str
     name: str
     description: str
     args: list[ArgSpec] = field(default_factory=list)
@@ -43,7 +44,7 @@ class BasePromptHandler:
 
     def get_prompt_description(self) -> Prompt:
         return Prompt(
-            name=self.name,
+            name=self.namespace + "." +self.name,
             description=self.description,
             arguments=[
                 PromptArgument(

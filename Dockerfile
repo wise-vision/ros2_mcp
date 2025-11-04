@@ -3,6 +3,11 @@ FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
 
 LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/mcp_server_ros_2"
 
+ENV MCP_CUSTOM_PROMPTS="false" \
+    MCP_PROMPTS_LOCAL="false" \
+    MCP_PROMPTS_PATH="/app/ros2_mcp_prompts" \
+    MCP_PROMPTS_MODULE="extension_prompts"
+
 RUN apt-get update && apt-get install -y \
     python3-pip \
     build-essential \
@@ -39,10 +44,13 @@ RUN if [ "$ROS_DISTRO" = "jazzy" ]; then \
   uv python pin 3.12; \
   fi
 
-RUN uv sync
+RUN uv sync --extra custom-prompts
 
 RUN mkdir -p /mcp/custom_msgs
 VOLUME ["/mcp/custom_msgs"]
+
+RUN mkdir -p /ros2_mcp_prompts
+VOLUME ["/ros2_mcp_prompts"]
 
 ENTRYPOINT []
 CMD ["bash", "-c", " \
