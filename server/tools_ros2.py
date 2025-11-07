@@ -187,7 +187,7 @@ class ROS2TopicSubscribe(toolhandler.ToolHandler):
                         "description": "If provided, stops after receiving this number of messages.",
                     },
                 },
-                "required": ["topic_name", "message_type"],
+                "required": ["topic_name"],
             },
         )
 
