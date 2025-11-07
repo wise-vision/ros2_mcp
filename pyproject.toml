@@ -14,8 +14,13 @@ dependencies = [
     "PyYAML",
     "python-dateutil",
     "pillow",
-    "lark"
+    "lark",
+    "tomli>=2.0.1; python_version < '3.11'",
 ]
+[project.optional-dependencies]
+custom-prompts = ["extension_prompts"]
+[tool.uv.sources]
+extension_prompts = { git = "https://github.com/wise-vision/ros2_mcp_prompts.git", rev = "dev" }
 
 [tool.uv]
 dev-dependencies = [
@@ -27,3 +32,9 @@ mcp_ros_2_server = "server.main:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server"]
+
+[tool.mcp_ros_2]
+custom_prompts = false
+prompts_local = false
+prompts_path = ""
+prompts_module = "extension_prompts"

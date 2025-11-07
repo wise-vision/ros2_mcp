@@ -77,6 +77,44 @@ To use custom messages [create folder](#add-custom-messages) and paste it into c
   }
 }
 ```
+To use custom prompts:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-e", "MCP_CUSTOM_PROMPTS=true",
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
+To use custom prompts from local folder:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-e", "MCP_CUSTOM_PROMPTS=true",
+      "-e", "MCP_PROMPTS_LOCAL=true",
+      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts"
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
 ### Step 2: Save and Enjoy
 
 After saving you should see indicator that the MCP server is running.
@@ -142,6 +180,44 @@ To use custom messages [create folder](#add-custom-messages) and paste it into c
       "--rm",
       "-v", "~/mcp_custom_messages:/app/custom_msgs"
       "wisevision/ros2_mcp:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
+To use custom prompts:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-e", "MCP_CUSTOM_PROMPTS=true",
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
+    ],
+    "env": {},
+    "working_directory": null,
+    "start_on_launch": true
+  }
+}
+```
+To use custom prompts from local folder:
+```json
+{
+  "mcp_server_ros_2": {
+    "command": "docker",
+    "args": [
+      "run",
+      "-i",
+      "--rm",
+      "-e", "MCP_CUSTOM_PROMPTS=true",
+      "-e", "MCP_PROMPTS_LOCAL=true",
+      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts"
+      "wisevision/mcp_server_ros_2:<humble/jazzy>"
     ],
     "env": {},
     "working_directory": null,
