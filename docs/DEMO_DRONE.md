@@ -4,7 +4,7 @@
 
 - [ROS2 Humble installed](https://docs.ros.org/en/humble/Installation.html) or later
 - [Gazebo installed](https://gazebosim.org/docs/fortress/install/)
-- Gazbeo ROS2 Bridge installed:
+- Gazebo ROS2 Bridge installed:
     ```bash
     sudo apt install ros-humble-ros-gz-bridge \
                     ros-humble-ros-gz-sim \
@@ -12,7 +12,7 @@
                     ros-humble-ros-gz-interfaces
     ```
 
-## Instrcution 
+## Instruction 
 1. Launch Gazebo:
     ```bash
     ign gazebo

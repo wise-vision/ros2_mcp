@@ -27,14 +27,10 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 try:
     import tomllib as toml  # py311+
-except Exception:
+except (ModuleNotFoundError, ImportError):
     import tomli as toml     # py310 fallback
 import argparse
-from mcp.server import Server
-from mcp.types import (
-    Tool, TextContent, ImageContent, EmbeddedResource,
-    Prompt, GetPromptResult,
-)
+
 
 
 app = Server("mcp-ros2-server")

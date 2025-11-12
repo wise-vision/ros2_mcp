@@ -9,7 +9,7 @@
 #
 from . import prompthandler
 
-NAMESPACE="base"
+NAMESPACE = "base"
 
 class ROS2TopicEchoAndAnalyzePrompt(prompthandler.BasePromptHandler):
     def __init__(self) -> None:
@@ -120,20 +120,15 @@ class ROS2TopicEchoAndAnalyzePrompt(prompthandler.BasePromptHandler):
                 (
                     "assistant",
                     "Acknowledged. I will:\n"
-                    "1. Discover available topics" + 
-                    (" and auto-detect if topic_name is not provided" if not "{topic_name}" else "") + "\n"
-                    "2. Subscribe to " + ("{topic_name}" if "{topic_name}" else "the selected topic") + 
-                    " for {duration_sec} seconds\n"
-                    "3. Perform " + 
-                    ("statistics, rate, and message count analysis" if "{analysis_type}" == "all" else "{analysis_type} analysis") + "\n"
+                    "1. Discover available topics and auto-detect if topic_name is not provided\n"
+                    "2. Subscribe to {topic_name} for {duration_sec} seconds\n"
+                    "3. Perform {analysis_type} analysis\n"
                     "4. Present clear, actionable results\n"
                     "Ready to proceed."
                 ),
                 (
                     "user",
-                    "Analyze topic: " + 
-                    ("topic_name={topic_name}, " if "{topic_name}" else "auto-detect, ") +
-                    "duration_sec={duration_sec}, analysis_type={analysis_type}"
+                    "Analyze topic: topic_name={topic_name}, duration_sec={duration_sec}, analysis_type={analysis_type}"
                 ),
             ],
         )
@@ -276,19 +271,16 @@ class ROS2TopicRelayPrompt(prompthandler.BasePromptHandler):
                     "Acknowledged. I will:\n"
                     "1. Verify source topic '{source_topic}' exists with type '{message_type}'\n"
                     "2. Set up relay to destination topic '{destination_topic}'\n"
-                    "3. Apply transform: '{transform}'" +
-                    (" at {target_rate_hz} Hz" if "{transform}" == "rate_limit" else "") + "\n"
-                    "4. Run relay for " + 
-                    ("{duration_sec} seconds" if "{duration_sec}" != "0" else "indefinitely") + "\n"
-                    "5. Provide status updates and final summary\n"
+                    "3. Apply transform: '{transform}' (target rate: {target_rate_hz} Hz if applicable)\n"
+                    "4. Run relay for {duration_sec} seconds (0 = indefinite)\n"
+                    "5. Provide status updates and a final summary\n"
                     "Ready to start relay."
                 ),
                 (
                     "user",
                     "Start relay: source_topic={source_topic}, destination_topic={destination_topic}, "
-                    "message_type={message_type}, transform={transform}" +
-                    (", target_rate_hz={target_rate_hz}" if "{transform}" == "rate_limit" else "") +
-                    ", duration_sec={duration_sec}"
+                    "message_type={message_type}, transform={transform}, target_rate_hz={target_rate_hz}, "
+                    "duration_sec={duration_sec}"
                 ),
             ],
         )
@@ -454,23 +446,26 @@ class ROS2NodeHealthCheckPrompt(prompthandler.BasePromptHandler):
                 ),
                 (
                     "assistant",
-                    "Acknowledged. I will perform health check:\n"
-                    "1. Discover all available topics and services\n" +
-                    ("2. Verify expected topics: {expected_topics}\n" if "{expected_topics}" else "2. No expected topics specified\n") +
-                    ("3. Verify expected services: {expected_services}\n" if "{expected_services}" else "3. No expected services specified\n") +
-                    ("4. Check publication rates (duration: {rate_check_duration_sec}s, min rate: {min_expected_rate_hz} Hz)\n" 
-                     if "{check_rates}" == "true" else "4. Rate checking disabled\n") +
-                    "5. Generate comprehensive health report with recommendations\n"
+                    "Acknowledged. I will perform the health check with the following parameters:\n"
+                    "• Expected topics: {expected_topics}\n"
+                    "• Expected services: {expected_services}\n"
+                    "• Rate checking: {check_rates} "
+                    "(duration: {rate_check_duration_sec}s, min rate: {min_expected_rate_hz} Hz)\n"
+                    "Steps:\n"
+                    "1) Discover topics and services\n"
+                    "2) Verify expected topics\n"
+                    "3) Verify expected services\n"
+                    "4) Check publication rates (if enabled)\n"
+                    "5) Generate a comprehensive health report with recommendations\n"
                     "Ready to proceed."
                 ),
                 (
                     "user",
-                    "Perform health check: " +
-                    ("expected_topics={expected_topics}, " if "{expected_topics}" else "") +
-                    ("expected_services={expected_services}, " if "{expected_services}" else "") +
-                    "check_rates={check_rates}" +
-                    (", rate_check_duration_sec={rate_check_duration_sec}, min_expected_rate_hz={min_expected_rate_hz}" 
-                     if "{check_rates}" == "true" else "")
+                    "Perform health check: expected_topics={expected_topics}, "
+                    "expected_services={expected_services}, "
+                    "check_rates={check_rates}, "
+                    "rate_check_duration_sec={rate_check_duration_sec}, "
+                    "min_expected_rate_hz={min_expected_rate_hz}"
                 ),
             ],
         )
@@ -688,21 +683,26 @@ class ROS2TopicDiffMonitorPrompt(prompthandler.BasePromptHandler):
                 ),
                 (
                     "assistant",
-                    "Acknowledged. I will perform topic comparison:\n"
-                    "1. Verify both topics exist: '{topic1_name}' and '{topic2_name}'\n"
-                    "2. Collect messages for {duration_sec} seconds simultaneously\n"
-                    "3. " + ("Synchronize messages by timestamp\n" if "{sync_by_timestamp}" == "true" else "Compare messages by index\n") +
-                    "4. Compare " + ("specified fields: {diff_fields}\n" if "{diff_fields}" else "all numeric fields\n") +
-                    "5. Use tolerance: {tolerance_percent}% for acceptable differences\n"
-                    "6. Generate comprehensive comparison report with recommendations\n"
+                    "Acknowledged. I will perform topic comparison with the following parameters:\n"
+                    "• Topic 1: {topic1_name}\n"
+                    "• Topic 2: {topic2_name}\n"
+                    "• Duration: {duration_sec} seconds\n"
+                    "• Synchronization: sync_by_timestamp={sync_by_timestamp} (by timestamp if true; by index otherwise)\n"
+                    "• Fields: {diff_fields} (all numeric fields if empty)\n"
+                    "• Tolerance: {tolerance_percent}%\n"
+                    "Steps:\n"
+                    "1) Verify topics and types\n"
+                    "2) Collect data simultaneously\n"
+                    "3) Synchronize according to setting\n"
+                    "4) Compare fields and aggregate statistics\n"
+                    "5) Produce a clear comparison report with recommendations\n"
                     "Ready to start monitoring."
                 ),
                 (
                     "user",
                     "Compare topics: topic1={topic1_name}, topic2={topic2_name}, "
-                    "duration={duration_sec}s" +
-                    (", diff_fields={diff_fields}" if "{diff_fields}" else "") +
-                    ", tolerance={tolerance_percent}%, sync_by_timestamp={sync_by_timestamp}"
+                    "duration_sec={duration_sec}, diff_fields={diff_fields}, "
+                    "tolerance_percent={tolerance_percent}, sync_by_timestamp={sync_by_timestamp}"
                 ),
             ],
         )

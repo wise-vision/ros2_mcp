@@ -44,7 +44,7 @@ class BasePromptHandler:
 
     def get_prompt_description(self) -> Prompt:
         return Prompt(
-            name=self.namespace + "." +self.name,
+            name=self.namespace + "." + self.name,
             description=self.description,
             arguments=[
                 PromptArgument(

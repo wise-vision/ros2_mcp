@@ -68,7 +68,7 @@ To use custom messages [create folder](#add-custom-messages) and paste it into c
       "run",
       "-i",
       "--rm",
-      "-v", "~/mcp_custom_messages:/app/custom_msgs"
+      "-v", "~/mcp_custom_messages:/app/custom_msgs",
       "wisevision/ros2_mcp:<humble/jazzy>"
     ],
     "env": {},
@@ -106,7 +106,7 @@ To use custom prompts from local folder:
       "--rm",
       "-e", "MCP_CUSTOM_PROMPTS=true",
       "-e", "MCP_PROMPTS_LOCAL=true",
-      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts"
+      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts",
       "wisevision/mcp_server_ros_2:<humble/jazzy>"
     ],
     "env": {},
@@ -178,7 +178,7 @@ To use custom messages [create folder](#add-custom-messages) and paste it into c
       "run",
       "-i",
       "--rm",
-      "-v", "~/mcp_custom_messages:/app/custom_msgs"
+      "-v", "~/mcp_custom_messages:/app/custom_msgs",
       "wisevision/ros2_mcp:<humble/jazzy>"
     ],
     "env": {},
@@ -216,7 +216,7 @@ To use custom prompts from local folder:
       "--rm",
       "-e", "MCP_CUSTOM_PROMPTS=true",
       "-e", "MCP_PROMPTS_LOCAL=true",
-      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts"
+      "-v", "<path_to_folder>/ros2_mcp_prompts:/app/ros2_mcp_prompts",
       "wisevision/mcp_server_ros_2:<humble/jazzy>"
     ],
     "env": {},

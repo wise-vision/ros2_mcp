@@ -1026,15 +1026,21 @@ def test_get_qos_for_publisher_topic_superset_real_subs():
             sub_a_node.destroy_subscription(sub_a)
             sub_b_node.destroy_subscription(sub_b)
         except Exception:
+            # best-effort cleanup: ignore errors while destroying subscriptions/nodes
+            # (some ROS2 implementations may already have shut down resources)
             pass
         try:
             sub_a_node.destroy_node()
             sub_b_node.destroy_node()
         except Exception:
+            # best-effort cleanup: ignore errors while destroying subscriptions/nodes
+            # (some ROS2 implementations may already have shut down resources)
             pass
         try:
             inspector_node.destroy_node()
         except Exception:
+            # best-effort cleanup: ignore errors while destroying subscriptions/nodes
+            # (some ROS2 implementations may already have shut down resources)
             pass
         rclpy.shutdown()
 

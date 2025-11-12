@@ -30,7 +30,6 @@ import time
 from rclpy.task import Future
 from builtin_interfaces.msg import Time, Duration
 from std_msgs.msg import Header
-from sensor_msgs.msg import Image, CompressedImage
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.qos import QoSDurabilityPolicy
 from rclpy.qos import QoSPresetProfiles
@@ -151,6 +150,7 @@ class ROS2Manager:
                 try:
                     max_keep_last_depth = max(max_keep_last_depth, int(sp.depth))
                 except Exception:
+                    # Ignore errors converting depth to int; fallback to default depth if conversion fails.
                     pass
 
         # Reliability
@@ -675,6 +675,7 @@ class ROS2Manager:
                 if uuid_bytes:
                     goal_id_hex = "".join(f"{b:02x}" for b in uuid_bytes)
             except Exception:
+                # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                 pass
 
             send_goal_stamp = None
@@ -686,6 +687,7 @@ class ROS2Manager:
                         "nanosec": int(getattr(stamp, "nanosec", 0)),
                     }
             except Exception:
+                # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                 pass
 
             response = {
@@ -728,6 +730,7 @@ class ROS2Manager:
                         self.node, cancel_future, timeout_sec=3.0
                     )
                 except Exception:
+                    # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                     pass
                 response["status_code"] = 0
                 response["status"] = "TIMEOUT"
@@ -1026,6 +1029,7 @@ class ROS2Manager:
                     if sub is not None and hasattr(self, "_tmp_subs"):
                         self._tmp_subs = [s for s in self._tmp_subs if s is not sub]
                 except Exception:
+                    # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                     pass
         
  
@@ -1105,6 +1109,7 @@ class ROS2Manager:
                 try:
                     self._tmp_subs.remove(sub)
                 except ValueError:
+                    # Subscription not found in _tmp_subs; safe to ignore.  
                     pass
 
             return out
