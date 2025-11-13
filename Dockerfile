@@ -25,7 +25,21 @@ RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ros2cli \
     ros-${ROS_DISTRO}-nav2-msgs \
     ros-${ROS_DISTRO}-mavros-msgs \
+    ros-${ROS_DISTRO}-ackermann-msgs \
+    ros-${ROS_DISTRO}-moveit-msgs \
     ros-${ROS_DISTRO}-action-tutorials-interfaces \
+    ros-${ROS_DISTRO}-builtin-interfaces \
+    ros-${ROS_DISTRO}-tf2-msgs \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-vision-msgs \
+    ros-${ROS_DISTRO}-image-transport \
+    ros-${ROS_DISTRO}-image-transport-plugins \
+    ros-${ROS_DISTRO}-camera-info-manager \
+    ros-${ROS_DISTRO}-unique-identifier-msgs \
+    ros-${ROS_DISTRO}-common-interfaces \
+    ros-${ROS_DISTRO}-diagnostic-updater \
+    ros-${ROS_DISTRO}-map-msgs \
+    ros-${ROS_DISTRO}-control-msgs \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
