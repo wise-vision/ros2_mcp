@@ -26,7 +26,8 @@ class ROS2TopicEchoAndAnalyzePrompt(prompthandler.BasePromptHandler):
                     "topic_name",
                     "Name of the ROS2 topic to subscribe to (optional - will auto-detect if only one topic available)",
                     False,
-                    "string"
+                    "string",
+                    default=""
                 ),
                 prompthandler.ArgSpec(
                     "duration_sec",
@@ -299,13 +300,15 @@ class ROS2NodeHealthCheckPrompt(prompthandler.BasePromptHandler):
                     "expected_topics",
                     "Array of expected topic names to verify (e.g., ['/camera/image', '/scan'])",
                     False,
-                    "array"
+                    "array",
+                    default=[]
                 ),
                 prompthandler.ArgSpec(
                     "expected_services",
                     "Array of expected service names to verify (e.g., ['/set_mode', '/arm'])",
                     False,
-                    "array"
+                    "array",
+                    default=[]
                 ),
                 prompthandler.ArgSpec(
                     "check_rates",
@@ -504,7 +507,8 @@ class ROS2TopicDiffMonitorPrompt(prompthandler.BasePromptHandler):
                     "diff_fields",
                     "Optional array of specific field names to compare (e.g., ['pose.position.x', 'pose.position.y']). If not provided, compares all numeric fields.",
                     False,
-                    "array"
+                    "array",
+                    default=[]
                 ),
                 prompthandler.ArgSpec(
                     "tolerance_percent",
