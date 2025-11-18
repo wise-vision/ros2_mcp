@@ -70,6 +70,14 @@ wheels = [
 ]
 
 [[package]]
+name = "extension-prompts"
+version = "0.1.0"
+source = { git = "https://github.com/wise-vision/ros2_mcp_prompts.git?rev=dev#0fe793a19b70953b8c4a54728ca0ed7e63f7ad3b" }
+dependencies = [
+    { name = "mcp-server-ros-2" },
+]
+
+[[package]]
 name = "h11"
 version = "0.14.0"
 source = { registry = "https://pypi.org/simple" }
@@ -191,6 +199,12 @@ dependencies = [
     { name = "pillow" },
     { name = "python-dateutil" },
     { name = "pyyaml" },
+    { name = "tomli", marker = "python_full_version < '3.11'" },
+]
+
+[package.optional-dependencies]
+custom-prompts = [
+    { name = "extension-prompts" },
 ]
 
 [package.dev-dependencies]
@@ -200,13 +214,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "extension-prompts", marker = "extra == 'custom-prompts'", git = "https://github.com/wise-vision/ros2_mcp_prompts.git?rev=dev" },
     { name = "lark" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.9.4" },
     { name = "numpy", specifier = ">=1.21,<2.0" },
     { name = "pillow" },
     { name = "python-dateutil" },
     { name = "pyyaml" },
+    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.1" },
 ]
+provides-extras = ["custom-prompts"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = ">=8.0" }]

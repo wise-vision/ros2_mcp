@@ -1,5 +1,5 @@
 
-# WiseVision ROS 2 MCP Server
+# ROS2 MCP Server
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord)](https://discord.gg/9aSw6HbUaw)
 ![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)
@@ -29,20 +29,39 @@ A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2*
 
 
 # 🤖 Available Prompts
+### 📘 Want to create a custom prompt? [Check the guide here](/docs/CREATE_PROMPT.md)
 
-## ✈️ drone-mavros2-mission
+## 📊 base.ros2-topic-echo-and-analyze
 
-Control a drone with MAVROS2 using just target coordinates (dest_x, dest_y, dest_z) and simple flags (return_to_launch, land_at_launch).
+Subscribe to a ROS2 topic, collect messages for a specified duration, and provide statistical analysis of the collected data.
 
-➡️ The prompt builds the full MAVLink mission (TAKEOFF, WAYPOINT, RTL, LAND) and switches to AUTO.
+➡️ Can auto-detect topic if only one is available. Analyzes message rates, counts, and statistics on numeric fields.
 
-## 🗺️ nav2-navigate-to-pose
+## 🔄 base.ros2-topic-relay
 
-Navigate a ground robot with Nav2 by providing only x, y, and yaw in the map frame.
+Subscribe to one ROS2 topic and republish messages to another topic with optional transformations.
 
-➡️ The prompt sends a NavigateToPose goal, handles result/timeout, streams feedback, and cancels if needed.
+➡️ Supports identity relay, rate limiting, and change-based filtering.
+
+## 🏥 base.ros2-node-health-check
+
+Check if expected ROS2 topics and services are available and functioning correctly with optional publication rate monitoring.
+
+➡️ Provides comprehensive health report with status indicators and recommendations.
+
+## 🔍 base.ros2-topic-diff-monitor
+
+Compare two ROS2 topics and report differences in their messages with detailed field-by-field analysis.
+
+➡️ Useful for comparing raw sensor data with filtered/processed versions or verifying topic synchronization.
+
+## ROS2 MCP has Prompts extension with additional prompts [See here](https://github.com/wise-vision/ros2_mcp_prompts)
+
+
 
 ### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
+
+
 
 
 **Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
@@ -85,6 +104,9 @@ Follow the [installation guide](installation/README.md) for step-by-step instruc
 - [💻 Install in Warp](installation/README.md#configure-warp)
 - [🐳 Build Docker Image locally](installation/README.md#build-docker-image-locally)
 
+## 💡 Want to try it in simulation?
+[Check out the Gazebo Drone Demo section](docs/DEMO_DRONE.md)
+
 
 
 ### 🔧 ROS 2 Tools
@@ -125,7 +147,7 @@ experience, we strongly recommend using the [MCP Inspector](https://github.com/m
 You can launch the MCP Inspector via [ `npm` ](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) with this command:
 
 ```bash
-npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_server_ros2 run mcp_ros_2_server
+npx @modelcontextprotocol/inspector uv --directory /path/to/ros2_mcp run mcp_ros_2_server
 ```
 
 Upon launching, the Inspector will display a URL that you can access in your browser to begin debugging.

@@ -187,7 +187,7 @@ class ROS2TopicSubscribe(toolhandler.ToolHandler):
                         "description": "If provided, stops after receiving this number of messages.",
                     },
                 },
-                "required": ["topic_name", "message_type"],
+                "required": ["topic_name"],
             },
         )
 
@@ -350,6 +350,7 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
         return Tool(
             name=self.name,
             description="""Publish a message to a ROS 2 topic by name and message type using provided field values.
+            Supports single publish (default) or continuous publishing at a specified frequency for a duration.
             Before **every** use of this tool, the agent must call 'ros2_topic_list' and 'ros2_interface_list'
             to ensure the latest available topics and message types are known.""",
             inputSchema={
@@ -367,6 +368,14 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
                         "type": "object",
                         "description": "Dictionary containing the message fields and values",
                     },
+                    "frequency": {
+                        "type": "number",
+                        "description": "Optional: Publish frequency in Hz (messages per second). If provided with duration, publishes repeatedly.",
+                    },
+                    "duration": {
+                        "type": "number",
+                        "description": "Optional: Duration in seconds for continuous publishing. Must be used with frequency parameter.",
+                    },
                 },
                 "required": ["topic_name", "message_type", "data"],
             },
@@ -377,9 +386,17 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
         topic_name = args.get("topic_name")
         message_type = args.get("message_type")
         data = args.get("data")
+        frequency = args.get("frequency")
+        duration = args.get("duration")
 
         ros = get_ros()
-        publish_to_topic = ros.publish_to_topic(topic_name, message_type, data)
+        publish_to_topic = ros.publish_to_topic(
+            topic_name, 
+            message_type, 
+            data,
+            frequency=frequency,
+            duration=duration
+        )
         return [TextContent(type="text", text=json.dumps(publish_to_topic, indent=2))]
 
 class ROS2ListActions(toolhandler.ToolHandler):

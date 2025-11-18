@@ -3,6 +3,11 @@ FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
 
 LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/mcp_server_ros_2"
 
+ENV MCP_CUSTOM_PROMPTS="false" \
+    MCP_PROMPTS_LOCAL="false" \
+    MCP_PROMPTS_PATH="/app/ros2_mcp_prompts" \
+    MCP_PROMPTS_MODULE="extension_prompts"
+
 RUN apt-get update && apt-get install -y \
     python3-pip \
     build-essential \
@@ -20,7 +25,21 @@ RUN apt-get update && apt-get install -y \
     ros-${ROS_DISTRO}-ros2cli \
     ros-${ROS_DISTRO}-nav2-msgs \
     ros-${ROS_DISTRO}-mavros-msgs \
+    ros-${ROS_DISTRO}-ackermann-msgs \
+    ros-${ROS_DISTRO}-moveit-msgs \
     ros-${ROS_DISTRO}-action-tutorials-interfaces \
+    ros-${ROS_DISTRO}-builtin-interfaces \
+    ros-${ROS_DISTRO}-tf2-msgs \
+    ros-${ROS_DISTRO}-tf2-geometry-msgs \
+    ros-${ROS_DISTRO}-vision-msgs \
+    ros-${ROS_DISTRO}-image-transport \
+    ros-${ROS_DISTRO}-image-transport-plugins \
+    ros-${ROS_DISTRO}-camera-info-manager \
+    ros-${ROS_DISTRO}-unique-identifier-msgs \
+    ros-${ROS_DISTRO}-common-interfaces \
+    ros-${ROS_DISTRO}-diagnostic-updater \
+    ros-${ROS_DISTRO}-map-msgs \
+    ros-${ROS_DISTRO}-control-msgs \
     python3-colcon-common-extensions \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,7 +58,13 @@ RUN if [ "$ROS_DISTRO" = "jazzy" ]; then \
   uv python pin 3.12; \
   fi
 
-RUN uv sync
+RUN uv sync --extra custom-prompts
+
+RUN mkdir -p /mcp/custom_msgs
+VOLUME ["/mcp/custom_msgs"]
+
+RUN mkdir -p /ros2_mcp_prompts
+VOLUME ["/ros2_mcp_prompts"]
 
 RUN mkdir -p /mcp/custom_msgs
 VOLUME ["/mcp/custom_msgs"]

@@ -151,6 +151,7 @@ class ROS2Manager:
                 try:
                     max_keep_last_depth = max(max_keep_last_depth, int(sp.depth))
                 except Exception:
+                    # Ignore errors converting depth to int; fallback to default depth if conversion fails.
                     pass
 
         # Reliability
@@ -539,7 +540,14 @@ class ROS2Manager:
         except Exception as e:
             return {"error": f"Deserialization error: {e}"}
 
-    def publish_to_topic(self, topic_name: str, message_type: str, data: dict) -> dict:
+    def publish_to_topic(
+        self, 
+        topic_name: str, 
+        message_type: str, 
+        data: dict,
+        frequency: float | None = None,
+        duration: float | None = None
+    ) -> dict:
         # Validate topic_name
         if not isinstance(topic_name, str) or not topic_name.strip():
             return {"error": "Invalid topic name. It must be a non-empty string."}
@@ -578,9 +586,35 @@ class ROS2Manager:
             pub = self.node.create_publisher(msg_class, topic_name, qos)
             msg_instance = msg_class()
             set_message_fields(msg_instance, data)
-            pub.publish(msg_instance)
-
-            return {"status": "published", "data": data}
+            
+            # If frequency and duration are provided, publish repeatedly
+            if frequency is not None and duration is not None:
+                if frequency <= 0:
+                    return {"error": "Frequency must be greater than 0."}
+                if duration <= 0:
+                    return {"error": "Duration must be greater than 0."}
+                
+                interval = 1.0 / frequency
+                end_time = time.time() + duration
+                published_count = 0
+                
+                while time.time() < end_time and self.node.context.ok():
+                    pub.publish(msg_instance)
+                    published_count += 1
+                    time.sleep(interval)
+                
+                return {
+                    "status": "published",
+                    "data": data,
+                    "published_count": published_count,
+                    "frequency": frequency,
+                    "duration": duration
+                }
+            else:
+                # Single publish (original behavior)
+                pub.publish(msg_instance)
+                return {"status": "published", "data": data}
+                
         except Exception as e:
             return {"error": "Failed to publish message due to an internal error."}
 
@@ -642,6 +676,7 @@ class ROS2Manager:
                 if uuid_bytes:
                     goal_id_hex = "".join(f"{b:02x}" for b in uuid_bytes)
             except Exception:
+                # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                 pass
 
             send_goal_stamp = None
@@ -653,6 +688,7 @@ class ROS2Manager:
                         "nanosec": int(getattr(stamp, "nanosec", 0)),
                     }
             except Exception:
+                # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                 pass
 
             response = {
@@ -695,6 +731,7 @@ class ROS2Manager:
                         self.node, cancel_future, timeout_sec=3.0
                     )
                 except Exception:
+                    # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                     pass
                 response["status_code"] = 0
                 response["status"] = "TIMEOUT"
@@ -993,6 +1030,7 @@ class ROS2Manager:
                     if sub is not None and hasattr(self, "_tmp_subs"):
                         self._tmp_subs = [s for s in self._tmp_subs if s is not sub]
                 except Exception:
+                    # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
                     pass
         
  
@@ -1072,6 +1110,7 @@ class ROS2Manager:
                 try:
                     self._tmp_subs.remove(sub)
                 except ValueError:
+                    # Subscription not found in _tmp_subs; safe to ignore.  
                     pass
 
             return out
