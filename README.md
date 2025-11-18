@@ -1,5 +1,5 @@
 
-# WiseVision ROS 2 MCP Server
+# ROS2 MCP Server
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord)](https://discord.gg/9aSw6HbUaw)
 ![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)
@@ -10,6 +10,61 @@
 ![Flow graph](docs/assets/flow-graph.gif)
 
 A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2**. This server enables AI tooling to connect with **ROS 2** nodes, topics, and services using the **MCP** standard over **stdio**. Designed to be **the easiest** **ROS 2** MCP server to configure.
+
+# ✨ Tools
+- List available topics 
+- List available services
+- Lists available actions with their types and request fields 
+- Call services
+- Subscribe to topics to collect messages
+- Publish messages to topics
+- Echo messages on topics
+- Get fields from message types
+- Sends an action goal and optionally waits for the result
+- Requests the result of an action goal
+- Subscribes to feedback messages from an action
+- Subscribes to status updates of an action
+- Cancels a specific goal or all active goals
+- Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
+
+
+# 🤖 Available Prompts
+### 📘 Want to create a custom prompt? [Check the guide here](/docs/CREATE_PROMPT.md)
+
+## 📊 base.ros2-topic-echo-and-analyze
+
+Subscribe to a ROS2 topic, collect messages for a specified duration, and provide statistical analysis of the collected data.
+
+➡️ Can auto-detect topic if only one is available. Analyzes message rates, counts, and statistics on numeric fields.
+
+## 🔄 base.ros2-topic-relay
+
+Subscribe to one ROS2 topic and republish messages to another topic with optional transformations.
+
+➡️ Supports identity relay, rate limiting, and change-based filtering.
+
+## 🏥 base.ros2-node-health-check
+
+Check if expected ROS2 topics and services are available and functioning correctly with optional publication rate monitoring.
+
+➡️ Provides comprehensive health report with status indicators and recommendations.
+
+## 🔍 base.ros2-topic-diff-monitor
+
+Compare two ROS2 topics and report differences in their messages with detailed field-by-field analysis.
+
+➡️ Useful for comparing raw sensor data with filtered/processed versions or verifying topic synchronization.
+
+## ROS2 MCP has Prompts extension with additional prompts [See here](https://github.com/wise-vision/ros2_mcp_prompts)
+
+
+
+### 💡 Don’t know what prompts are? [See the MCP spec here](https://modelcontextprotocol.io/specification/2025-06-18/server/prompts#user-interaction-model).
+
+
+
+
+**Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
 
 ## 🎯 Why Choose This MCP Server?
 
@@ -35,23 +90,11 @@ If you find this useful, please ⭐ star the repo — it helps others discover i
 🚀 **Enjoying this project?**  
 Feel free to contribute or reach out for support! Write issues, submit PRs, or join our [Discord community](https://discord.gg/9aSw6HbUaw) to connect with other ROS 2 and AI enthusiasts.
 
+# 🚀 Drone Mission Using Prompts
+![Drone mission demo](docs/assets/drone_mcp_prompts.gif)
 
 # 🌍 Real-world examples:
 ![Demo](docs/assets/mcp-ros2-server.gif)
-
-# ✨ Features
-- List available topics 
-- List available services 
-- Call services
-- Subscribe to topics to collect messages
-- Publish messages to topics
-- Echo messages on topics
-- Get fields from message types
-- Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
-
-
-**Note:** To call a service with a custom (non-default) type, source the package that defines it before starting the server.
-
 
 # ⚙️ Installation
 
@@ -60,6 +103,9 @@ Follow the [installation guide](installation/README.md) for step-by-step instruc
 - [🤖 Install in Claude Desktop](installation/README.md#configure-claude-desktop)
 - [💻 Install in Warp](installation/README.md#configure-warp)
 - [🐳 Build Docker Image locally](installation/README.md#build-docker-image-locally)
+
+## 💡 Want to try it in simulation?
+[Check out the Gazebo Drone Demo section](docs/DEMO_DRONE.md)
 
 
 
@@ -82,6 +128,16 @@ Follow the [installation guide](installation/README.md) for step-by-step instruc
 | **`ros2_service_list`** | Returns list of available services | – | `service_name` (string) <br> `service_type` (string) <br> `request_fields` (array) |
 | **`ros2_service_call`** | Calls a ROS 2 service | `service_name` (string) <br> `service_type` (string) <br> `fields` (array) <br> `force_call` (bool, default: false) | `result` (string) <br> `error` (string, if any) |
 
+#### 🎯 **Actions**
+| Tool | Description | Inputs | Outputs |
+|------|-------------|--------|---------|
+| **`ros2_list_actions`** | Returns list of available ROS 2 actions with their types and request fields | – | `actions[]` (array) <br> └ `name` (string) <br> └ `types[]` (array of string) <br> └ `request_fields` (array) |
+| **`ros2_send_action_goal`** | Sends a goal to an action. Optionally waits for the result. | `action_name` (string) <br> `action_type` (string) <br> `goal_fields` (object) <br> `wait_for_result` (bool, default: false) <br> `timeout_sec` (number, default: 60.0) | `accepted` (bool) <br> `goal_id` (string\|null) <br> `send_goal_stamp` (object\|null) <br> `waited` (bool) <br> `result_timeout_sec` (number\|null) <br> `status_code` (int\|null) <br> `status` (string\|null) <br> `result` (object\|null) \| `error` (string) |
+| **`ros2_cancel_action_goal`** | Cancels a specific goal or all goals for an action | `action_name` (string) <br> `goal_id_hex` (string, required if `cancel_all`=false) <br> `cancel_all` (bool, default: false) <br> `stamp_sec` (int, default: 0) <br> `stamp_nanosec` (int, default: 0) <br> `wait_timeout_sec` (number, default: 3.0) | `service` (string) <br> `return_code` (int) <br> `return_code_text` (string) <br> `goals_canceling[]` (array of {`goal_id`, `stamp`}) \| `error` (string) |
+| **`ros2_action_request_result`** | Waits for the RESULT of a given goal via GetResult | `action_name` (string) <br> `action_type` (string) <br> `goal_id_hex` (string, 32-char UUID) <br> `timeout_sec` (number\|null, default: 60.0) <br> `wait_for_service_sec` (number, default: 3.0) | `service` (string) <br> `goal_id` (string) <br> `waited` (bool) <br> `result_timeout_sec` (number\|null) <br> `status_code` (int\|null) <br> `status` (string\|null) <br> `result` (object\|null) \| `error` (string) |
+| **`ros2_action_subscribe_feedback`** | Subscribes to feedback messages for an action. Can filter by goal_id. Collects messages for duration or max count. | `action_name` (string) <br> `action_type` (string) <br> `goal_id_hex` (string\|null) <br> `duration_sec` (number, default: 5.0) <br> `max_messages` (int, default: 100) | `topic` (string) <br> `action_type` (string) <br> `goal_id_filter` (string\|null) <br> `duration_sec` (number) <br> `messages[]` (array of {`goal_id`, `feedback`, `recv_stamp`}) \| `error` (string) |
+| **`ros2_action_subscribe_status`** | Subscribes to an action's status topic and returns collected status frames | `action_name` (string) <br> `duration_sec` (number, default: 5.0) <br> `max_messages` (int, default: 100) | `topic` (string) <br> `duration_sec` (number) <br> `frames[]` (array of {`stamp`, `statuses[]`}) \| `error` (string) |
+
 
 # 🐞 Debugging
 
@@ -91,7 +147,7 @@ experience, we strongly recommend using the [MCP Inspector](https://github.com/m
 You can launch the MCP Inspector via [ `npm` ](https://docs.npmjs.com/downloading-and-installing-node-js-and-npm) with this command:
 
 ```bash
-npx @modelcontextprotocol/inspector uv --directory /path/to/mcp_server_ros2 run mcp_ros_2_server
+npx @modelcontextprotocol/inspector uv --directory /path/to/ros2_mcp run mcp_ros_2_server
 ```
 
 Upon launching, the Inspector will display a URL that you can access in your browser to begin debugging.

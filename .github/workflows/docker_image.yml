@@ -34,7 +34,7 @@ jobs:
 
       - name: Docker build (${{ matrix.ros_distro }})
         run: |
-          docker build -t mcp_server_ros_2  --build-arg ROS_DISTRO=${{ matrix.ros_distro }} .
+          docker build -t ros2_mcp  --build-arg ROS_DISTRO=${{ matrix.ros_distro }} .
 
   build_and_push_arm64:
     if: github.event_name == 'push'
@@ -70,7 +70,7 @@ jobs:
             --platform linux/arm64 \
             --file Dockerfile \
             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }}-arm64 \
+            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64 \
             --push \
             .
 
@@ -101,7 +101,7 @@ jobs:
             --platform linux/amd64 \
             --file Dockerfile \
             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }}-amd64 \
+            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
             --push \
             .
 
@@ -134,11 +134,11 @@ jobs:
       - name: Merge ARM64 and AMD64 into one multi-arch tag (Docker Hub)
         run: |
           docker buildx imagetools create \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }} \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }}-amd64 \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }}-arm64
+            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }} \
+            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
+            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64
 
-          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/mcp_server_ros_2:${{ matrix.ros_distro }}
+          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}
 
 
   send_trigger:
