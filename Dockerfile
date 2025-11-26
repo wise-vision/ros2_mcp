@@ -1,7 +1,7 @@
 ARG ROS_DISTRO=jazzy
 FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
 
-LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/mcp_server_ros_2"
+LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/ros2_mcp"
 
 ENV MCP_CUSTOM_PROMPTS="false" \
     MCP_PROMPTS_LOCAL="false" \

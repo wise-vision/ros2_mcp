@@ -1,9 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
-  "name": "io.github.wise-vision/mcp_server_ros_2",
+  "name": "io.github.wise-vision/ros2_mcp",
   "description": "View ROS 2 nodes and topics, and call services and actions via MCP",
   "repository": {
-    "url": "https://github.com/wise-vision/mcp_server_ros_2",
+    "url": "https://github.com/wise-vision/ros2_mcp",
     "source": "github"
   },
   "version": "1.0.0",
@@ -13,7 +13,43 @@
       "identifier": "docker.io/mcp/ros2:latest",
       "transport": {
         "type": "stdio"
-      }
+      },
+      "runtimeHint": "docker",
+      "runtimeArguments": [
+        {
+          "type": "named",
+          "name": "-v",
+          "description": "Mount custom messages directory",
+          "value": "~/mcp_custom_messages:/app/custom_msgs",
+          "isRequired": false
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "MCP_CUSTOM_PROMPTS",
+          "description": "Enable custom prompts",
+          "isRequired": false,
+          "value": "false"
+        },
+        {
+          "name": "MCP_PROMPTS_LOCAL",
+          "description": "Use local prompts",
+          "isRequired": false,
+          "value": "false"
+        },
+        {
+          "name": "MCP_PROMPTS_PATH",
+          "description": "Path to custom prompts directory",
+          "isRequired": false,
+          "value": "/app/ros2_mcp_prompts"
+        },
+        {
+          "name": "MCP_PROMPTS_MODULE",
+          "description": "Name of the prompts module",
+          "isRequired": false,
+          "value": "extension_prompts"
+        }
+      ]
     }
   ]
 }
