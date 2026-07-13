@@ -22,7 +22,7 @@ def main():
         "--transport",
         type=str,
         default="stdio",
-        choices=["stdio", "sse"],
+        choices=["stdio", "sse", "streamable-http"],
         help="Transport being use in MCP server",
     )
     parser.add_argument(

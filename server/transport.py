@@ -11,13 +11,15 @@
 from mcp.server.lowlevel.server import Server as BaseServer
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route, Mount
 from starlette.applications import Starlette
 from starlette.types import Scope, Receive, Send
+import contextlib
+from collections.abc import AsyncIterator
 
-from mcp.server.lowlevel.server import Server as BaseServer
 import uvicorn
 import anyio
 
@@ -47,6 +49,13 @@ class TransportMixin:
     async def run_sse_async(
         self, sse_path: str = "/sse", message_path: str = "/messages/"
     ) -> None:
+        """Run the legacy HTTP+SSE transport.
+
+        NOTE: SSE transport is deprecated by the MCP spec in favor of
+        Streamable HTTP (see https://modelcontextprotocol.io/docs/concepts/transports#server-sent-events-sse-deprecated).
+        Kept here for backward compatibility with existing SSE clients;
+        prefer "streamable-http" for new integrations.
+        """
         sse = SseServerTransport(message_path)
 
         async def handle_sse(scope: Scope, receive: Receive, send: Send):
@@ -81,10 +90,59 @@ class TransportMixin:
         server = uvicorn.Server(config)
         await server.serve()
 
+    async def run_streamable_http_async(
+        self,
+        *,
+        path: str = "/mcp",
+        json_response: bool = False,
+        stateless: bool = False,
+    ) -> None:
+        """Run the Streamable HTTP transport (MCP spec's SSE replacement).
+
+        See https://modelcontextprotocol.io/docs/concepts/transports#streamable-http.
+        A single ASGI endpoint handles both the initial POST (which may
+        upgrade to an SSE stream for server->client messages) and
+        subsequent session-scoped requests, per the MCP spec.
+        """
+        session_manager = StreamableHTTPSessionManager(
+            app=self._mcp_server,
+            json_response=json_response,
+            stateless=stateless,
+        )
+
+        async def handle_streamable_http(
+            scope: Scope, receive: Receive, send: Send
+        ) -> None:
+            await session_manager.handle_request(scope, receive, send)
+
+        @contextlib.asynccontextmanager
+        async def lifespan(app: Starlette) -> AsyncIterator[None]:
+            async with session_manager.run():
+                yield
+
+        app = Starlette(
+            debug=True,
+            routes=[
+                Mount(path, app=handle_streamable_http),
+            ],
+            lifespan=lifespan,
+        )
+
+        config = uvicorn.Config(
+            app,
+            host=self._host,
+            port=self._port,
+            log_level=self._log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
+
     def run(self, transport: str = "stdio") -> None:
         if transport == "stdio":
             anyio.run(self.run_stdio_async)
         elif transport == "sse":
             anyio.run(lambda: self.run_sse_async())
+        elif transport == "streamable-http":
+            anyio.run(lambda: self.run_streamable_http_async())
         else:
             raise ValueError(f"Unsupported transport: {transport}")
