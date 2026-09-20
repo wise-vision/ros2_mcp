@@ -90,6 +90,31 @@ If you find this useful, please ⭐ star the repo — it helps others discover i
 🚀 **Enjoying this project?**
 Feel free to contribute or reach out for support! Write issues, submit PRs, or join our [Discord community](https://discord.gg/9aSw6HbUaw) to connect with other ROS 2 and AI enthusiasts.
 
+## 🏢 Commercial use and support
+
+This project is free and MPL-2.0 licensed — you can use it in a commercial
+product without asking anyone.
+
+If you are putting it on a real machine and want more than the public issue
+tracker, WiseVision (the maintainers) offer paid work around it:
+
+- **Integration support** — getting the server running against your stack, your
+  message types, your QoS constraints.
+- **Custom tools and prompts** — handlers for your own interfaces, beyond the
+  built-in topic/service/action set.
+- **Priority fixes** — a defect that blocks your deployment, handled on a
+  schedule instead of a backlog.
+
+**Start here:
+[Discussions → Q&A](https://github.com/wise-vision/ros2_mcp/discussions/categories/q-a).**
+Open a thread describing your robot, your ROS 2 distro, and what you need; a
+maintainer replies there. Public by default, which also means the next person
+with your problem can read the answer. Nothing is auto-priced — tell us the
+problem first.
+
+Not commercial? Nothing changes: issues, PRs, and
+[Discord](https://discord.gg/9aSw6HbUaw) stay open and free.
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please check the [open issues](https://github.com/wise-vision/ros2_mcp/issues) for

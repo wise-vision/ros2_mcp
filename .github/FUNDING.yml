@@ -1,0 +1,10 @@
+# Where to reach the maintainers about commercial use of this project.
+#
+# `github:` (GitHub Sponsors) is deliberately NOT set. Measured 2026-09-20:
+# https://github.com/sponsors/wise-vision returns 302 → the org page, i.e.
+# Sponsors is not enabled for this org. Listing it anyway renders a "Sponsor"
+# button in the repo header that leads nowhere — a broken promise in the most
+# prominent position on the page. Add the key in the same commit that enables
+# Sponsors, not before.
+custom:
+  - "https://github.com/wise-vision/ros2_mcp/discussions/categories/q-a"
