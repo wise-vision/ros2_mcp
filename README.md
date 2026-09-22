@@ -112,6 +112,15 @@ maintainer replies there. Public by default, which also means the next person
 with your problem can read the answer. Nothing is auto-priced — tell us the
 problem first.
 
+Commercial or partnership inquiries that can't be public: email
+**Adam-krawczyk@outlook.com**. Everything else — bugs, questions, ideas —
+belongs in issues or Discussions.
+
+Want to see it on real data before talking? The
+[forklift rosbag demo](examples/forklift_rosbag_demo/README.md) replays a
+warehouse forklift recording and walks through three MCP calls in about ten
+minutes.
+
 Not commercial? Nothing changes: issues, PRs, and
 [Discord](https://discord.gg/9aSw6HbUaw) stay open and free.
 
