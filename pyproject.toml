@@ -5,9 +5,10 @@ build-backend = "hatchling.build"
 [project]
 name = "mcp_server_ros_2"
 version = "0.1.0"
-description = "MCP Server for ROS 2"
+description = "ROS2 MCP: open-source MCP server for ROS 2 (Humble, Jazzy)"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MPL-2.0"
 dependencies = [
     "mcp[cli]>=1.23.0",
     "starlette>=0.49.1",
@@ -28,6 +29,11 @@ extension_prompts = { git = "https://github.com/wise-vision/ros2_mcp_prompts.git
 dev-dependencies = [
     "pytest>=8.0",
 ]
+
+[project.urls]
+Homepage = "https://wisevision.tech/docs"
+Documentation = "https://wisevision.tech/docs"
+Repository = "https://github.com/wise-vision/ros2_mcp"
 
 [project.scripts]
 mcp_ros_2_server = "server.main:main"

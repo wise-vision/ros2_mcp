@@ -11,13 +11,19 @@ RUN npm run build
 
 FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
 
-LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/ros2_mcp"
+LABEL io.modelcontextprotocol.server.name="io.github.wise-vision/ros2_mcp" \
+      org.opencontainers.image.title="ROS2 MCP" \
+      org.opencontainers.image.description="ROS2 MCP: open-source MCP server for ROS 2" \
+      org.opencontainers.image.source="https://github.com/wise-vision/ros2_mcp" \
+      org.opencontainers.image.documentation="https://wisevision.tech/docs" \
+      org.opencontainers.image.licenses="MPL-2.0"
 
 ENV MCP_CUSTOM_PROMPTS="false" \
     MCP_PROMPTS_LOCAL="false" \
     MCP_PROMPTS_PATH="/app/ros2_mcp_prompts" \
     MCP_PROMPTS_MODULE="extension_prompts" \
-    RMW_FASTRTPS_USE_SHM="0"
+    RMW_FASTRTPS_USE_SHM="0" \
+    ROS2_MCP_READONLY="false"
 
 RUN apt-get update && \
     if [ "$ROS_DISTRO" = "jazzy" ]; then \

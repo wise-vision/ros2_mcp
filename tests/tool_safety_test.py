@@ -113,3 +113,7 @@ def test_api_types():
 )
 def test_read_only_requested(env, argv, expected):
     assert srv.read_only_requested(environ=env, argv=argv) is expected
+
+
+def test_server_identity_is_ros2_mcp():
+    assert srv.app.name == "ROS2 MCP"
