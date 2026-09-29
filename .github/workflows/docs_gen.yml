@@ -1,0 +1,88 @@
+name: docs-gen
+
+# Drift gate for the generated tool reference (docs/generated/tools.{json,md}).
+# Regenerates from the real tool registry inside ROS 2 Jazzy and fails with a
+# unified diff when the committed files are stale.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-gen:
+    runs-on: ubuntu-latest
+
+    container:
+      image: ros:jazzy-ros-base
+
+    env:
+      PYTHONPATH: .
+      MCP_CUSTOM_PROMPTS: 'false'
+      MCP_PROMPTS_LOCAL: 'false'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v5
+      with:
+        fetch-depth: 0  # provenance needs history + tags
+
+    - name: Install dependencies
+      run: |
+        apt-get update && apt-get install -y \
+          python3-pip \
+          git \
+          ros-jazzy-example-interfaces \
+          ros-jazzy-mavros-msgs \
+          ros-jazzy-action-tutorials-interfaces
+        python3 -m pip install --break-system-packages uv
+        git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+    - name: Create and sync uv virtual environment
+      run: |
+        # Jazzy's rclpy is built for the system python (3.12).
+        uv sync --dev --python /usr/bin/python3
+
+    - name: Generator tests
+      run: |
+        . /opt/ros/jazzy/setup.sh
+        uv run --python /usr/bin/python3 pytest scripts/tests -q -p no:cacheprovider
+
+    - name: Drift check
+      if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      run: |
+        . /opt/ros/jazzy/setup.sh
+        uv run --python /usr/bin/python3 python scripts/gen_tool_docs.py --check
+
+    - name: Drift check (strict provenance, release tag)
+      if: ${{ startsWith(github.ref, 'refs/tags/') }}
+      run: |
+        . /opt/ros/jazzy/setup.sh
+        uv run --python /usr/bin/python3 python scripts/gen_tool_docs.py --check --strict-provenance
+
+    - name: Release stamp (tag + SHA for the docs site)
+      if: ${{ startsWith(github.ref, 'refs/tags/') }}
+      run: |
+        python3 - <<'EOF'
+        import json, os
+        src = json.load(open("docs/generated/tools.json"))["provenance"]
+        stamp = {"release_tag": os.environ["GITHUB_REF_NAME"], "release_sha": os.environ["GITHUB_SHA"], **src}
+        with open("docs/generated/release-stamp.json", "w") as f:
+            f.write(json.dumps(stamp, indent=2) + "\n")
+        print(json.dumps(stamp, indent=2))
+        EOF
+
+    - name: Upload generated docs
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: tool-docs
+        path: docs/generated/
+        if-no-files-found: error
