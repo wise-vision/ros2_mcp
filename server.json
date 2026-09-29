@@ -1,7 +1,9 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
   "name": "io.github.wise-vision/ros2_mcp",
-  "description": "View ROS 2 nodes and topics, and call services and actions via MCP",
+  "title": "ROS2 MCP",
+  "description": "ROS2 MCP: list, subscribe, publish and call ROS 2 topics, services and actions via MCP (optional read-only mode)",
+  "websiteUrl": "https://wisevision.tech/docs",
   "repository": {
     "url": "https://github.com/wise-vision/ros2_mcp",
     "source": "github"
@@ -48,6 +50,12 @@
           "description": "Name of the prompts module",
           "isRequired": false,
           "value": "extension_prompts"
+        },
+        {
+          "name": "ROS2_MCP_READONLY",
+          "description": "Read-only mode: when 1/true, tools that publish, call services or send/cancel action goals are not registered",
+          "isRequired": false,
+          "value": "false"
         },
         {
           "name": "MCP_ROS_DISCOVERY_WARMUP",

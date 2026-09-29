@@ -24,6 +24,8 @@ from mcp.types import (
 from . import toolhandler
 from . import tools_ros2
 from . import tools_ros2_viewer
+from . import tools_ros2_extended
+from . import tool_safety
 import os, sys, pathlib, importlib
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -35,15 +37,42 @@ import argparse
 
 
 
-app = Server("mcp-ros2-server")
+SERVER_NAME = "ROS2 MCP"
 
-tool_handlers = {}
+app = Server(SERVER_NAME)
+
+READ_ONLY_ENV = "ROS2_MCP_READONLY"
+READ_ONLY_FLAG = "--read-only"
+
+
+def read_only_requested(environ=None, argv=None) -> bool:
+    """True when read-only mode is requested via ``--read-only`` or ``ROS2_MCP_READONLY``."""
+    environ = os.environ if environ is None else environ
+    argv = sys.argv if argv is None else argv
+    if READ_ONLY_FLAG in argv[1:]:
+        return True
+    val = environ.get(READ_ONLY_ENV)
+    return val is not None and val.strip().lower() in ("1", "true", "yes", "on")
+
+
+# Every tool this server can offer, in registration order.
+_all_tool_handlers: dict[str, toolhandler.ToolHandler] = {}
+# Tools actually registered (visible to list_tools / call_tool).
+tool_handlers: dict[str, toolhandler.ToolHandler] = {}
+_read_only = False
+
+
+def _allowed(name: str) -> bool:
+    # Read-only fails closed: only tools explicitly reviewed as read-only are registered.
+    return not _read_only or name in tool_safety.READ_ONLY_TOOLS
 
 
 def add_tool_handler(tool_class: toolhandler.ToolHandler):
-    global tool_handlers
-
-    tool_handlers[tool_class.name] = tool_class
+    _all_tool_handlers[tool_class.name] = tool_class
+    if _allowed(tool_class.name):
+        tool_handlers[tool_class.name] = tool_class
+    else:
+        tool_handlers.pop(tool_class.name, None)
 
 
 def get_tool_handler(name: str) -> toolhandler.ToolHandler | None:
@@ -51,6 +80,23 @@ def get_tool_handler(name: str) -> toolhandler.ToolHandler | None:
         return None
 
     return tool_handlers[name]
+
+
+def configure_tools(read_only: bool) -> None:
+    """(Re)build the registered tool set. In read-only mode mutating tools are not registered."""
+    global _read_only
+    _read_only = bool(read_only)
+    tool_handlers.clear()
+    for name, handler in _all_tool_handlers.items():
+        if _allowed(name):
+            tool_handlers[name] = handler
+    if _read_only:
+        hidden = sorted(set(_all_tool_handlers) - set(tool_handlers))
+        logging.warning("Read-only mode: not registering %s", ", ".join(hidden))
+
+
+def is_read_only() -> bool:
+    return _read_only
 
 
 add_tool_handler(tools_ros2.ROS2TopicList())
@@ -67,12 +113,18 @@ add_tool_handler(tools_ros2.ROS2CancelActionGoal())
 add_tool_handler(tools_ros2.ROS2ActionRequestResult())
 add_tool_handler(tools_ros2.ROS2ActionSubscribeFeedback())
 add_tool_handler(tools_ros2.ROS2ActionSubscribeStatus())
+add_tool_handler(tools_ros2_extended.SubscribeMultipleTopicsTool())
+add_tool_handler(tools_ros2_extended.PublishMultipleTopicsTool())
+add_tool_handler(tools_ros2_extended.GetMapAsImage())
+add_tool_handler(tools_ros2_extended.GetPointCloudAsBEV())
 add_tool_handler(tools_ros2_viewer.ROS2ViewerApp())
 add_tool_handler(tools_ros2_viewer.ROS2ViewerConfig())
 add_tool_handler(tools_ros2_viewer.ROS2StreamStart())
 add_tool_handler(tools_ros2_viewer.ROS2StreamNext())
 add_tool_handler(tools_ros2_viewer.ROS2StreamNextImage())
 add_tool_handler(tools_ros2_viewer.ROS2StreamStop())
+
+configure_tools(read_only_requested())
 
 @app.list_tools()
 async def list_tools() -> list[Tool]:

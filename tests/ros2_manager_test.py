@@ -11,9 +11,15 @@
 
 from unittest.mock import MagicMock, patch
 from server.ros2_manager import ROS2Manager
+import server.ros2_manager as _rm
+import importlib
 import rclpy
 
-@patch("server.ros2_manager.ServiceNode")
+# Targets are bound with patch.object (not patch("dotted.path")): on Python 3.12
+# (ROS 2 Jazzy) mock resolves dotted targets via importlib.import_module, so a test
+# that also patches import_module would resolve later targets against the mock.
+
+@patch.object(_rm, "ServiceNode")
 def test_list_topics(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = [
@@ -38,7 +44,7 @@ def test_list_topics(mock_node_cls):
         },
     ]
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_list_topics_empty(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = []
@@ -49,8 +55,8 @@ def test_list_topics_empty(mock_node_cls):
 
     assert result == [] 
 
-@patch("server.ros2_manager.ROS2Manager.get_request_fields")
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm.ROS2Manager, "get_request_fields")
+@patch.object(_rm, "ServiceNode")
 def test_list_services_with_services(mock_node_cls, mock_get_request_fields):
     mock_node = MagicMock()
     mock_node.get_service_names_and_types.return_value = [
@@ -80,7 +86,7 @@ def test_list_services_with_services(mock_node_cls, mock_get_request_fields):
         }
     ]
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_list_services_empty(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_service_names_and_types.return_value = []
@@ -93,8 +99,8 @@ def test_list_services_empty(mock_node_cls):
 
 from example_interfaces.srv import AddTwoInts
 
-@patch("server.ros2_manager.ServiceNode") 
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch.object(_rm, "ServiceNode") 
+@patch.object(_rm.rclpy, "spin_until_future_complete")
 def test_call_service_success_real_type(mock_spin, mock_node_cls):
     try:
         if not rclpy.ok():
@@ -176,7 +182,7 @@ def test_serialize_msg_fallback():
         rclpy.shutdown()
 
 # Test for subscribe topic
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_subscribe_topic_topic_not_found(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = [("/chatter", ["std_msgs/msg/String"])]
@@ -189,8 +195,8 @@ def test_subscribe_topic_topic_not_found(mock_node_cls):
     assert "error" in result
     assert "not found" in result["error"]
 
-@patch("server.ros2_manager.importlib.import_module", side_effect=ImportError("Boom"))
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm.importlib, "import_module", side_effect=ImportError("Boom"))
+@patch.object(_rm, "ServiceNode")
 def test_subscribe_topic_import_fail(mock_node_cls, mock_import):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = [("/chatter", ["std_msgs/msg/String"])]
@@ -203,9 +209,9 @@ def test_subscribe_topic_import_fail(mock_node_cls, mock_import):
     assert "error" in result
     assert "Failed to import" in result["error"]
 
-@patch("server.ros2_manager.get_service")
-@patch("server.ros2_manager.get_message")
-@patch("server.ros2_manager.deserialize_message")
+@patch.object(_rm, "get_service")
+@patch.object(_rm, "get_message")
+@patch.object(_rm, "deserialize_message")
 def test_call_get_messages_service_any_success(
     mock_deserialize, mock_get_msg, mock_get_srv
 ):
@@ -261,7 +267,7 @@ def test_call_get_messages_service_any_success(
     finally:
         rclpy.shutdown()
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_string_no_type_mocks(mock_node_cls):
     from std_msgs.msg import String
 
@@ -290,21 +296,21 @@ def test_publish_to_topic_string_no_type_mocks(mock_node_cls):
         if rclpy.ok():
             rclpy.shutdown()
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_topic_name(mock_node_cls):
     manager = ROS2Manager()
     result = manager.publish_to_topic("", "std_msgs/msg/String", {"data": "Hello"})
     assert "error" in result
     assert result["error"] == "Invalid topic name. It must be a non-empty string."
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_message_type(mock_node_cls):
     manager = ROS2Manager()
     result = manager.publish_to_topic("/chatter", "invalidtype", {"data": "Hello"})
     assert "error" in result
     assert result["error"] == "Invalid message type. It must be a valid ROS2 message type string."
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_data(mock_node_cls):
     manager = ROS2Manager()
     result = manager.publish_to_topic("/chatter", "std_msgs/msg/String", "invalid_data")
@@ -312,8 +318,8 @@ def test_publish_to_topic_invalid_data(mock_node_cls):
     assert result["error"] == "Invalid data. It must be a dictionary."
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
 def test_mavros_waypoint_push_int_to_float_no_type_mocks(mock_spin, mock_node_cls):
     from mavros_msgs.srv import WaypointPush
     from mavros_msgs.msg import Waypoint
@@ -396,10 +402,10 @@ ACTION_TYPE = "action_tutorials_interfaces/action/Fibonacci"
 ACTION_NAME = "/fibonacci"
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
-@patch("server.ros2_manager.ActionClient")
-@patch("server.ros2_manager.importlib.import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
+@patch.object(_rm, "ActionClient")
+@patch.object(_rm.importlib, "import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
 def test_send_action_goal_no_wait_not_accepted(mock_import, mock_action_client, mock_spin, mock_node_cls):
     try:
         if not rclpy.ok():
@@ -437,10 +443,10 @@ def test_send_action_goal_no_wait_not_accepted(mock_import, mock_action_client, 
         if rclpy.ok():
             rclpy.shutdown()
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
-@patch("server.ros2_manager.ActionClient")
-@patch("server.ros2_manager.importlib.import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
+@patch.object(_rm, "ActionClient")
+@patch.object(_rm.importlib, "import_module", return_value=types.SimpleNamespace(Fibonacci=Fibonacci))
 def test_send_action_goal_no_wait_accepted(mock_import, mock_action_client, mock_spin, mock_node_cls):
     try:
         if not rclpy.ok():
@@ -480,10 +486,10 @@ def test_send_action_goal_no_wait_accepted(mock_import, mock_action_client, mock
 
 from action_tutorials_interfaces.action._fibonacci import Fibonacci_GetResult
 from action_tutorials_interfaces import action as fib_action
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
-@patch("server.ros2_manager.ActionClient")
-@patch("server.ros2_manager.importlib.import_module", return_value=fib_action)
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
+@patch.object(_rm, "ActionClient")
+@patch.object(_rm.importlib, "import_module", return_value=fib_action)
 def test_send_action_goal_wait_for_result_succeeded(
     mock_import, mock_action_client, mock_spin, mock_node_cls
 ):
@@ -533,7 +539,7 @@ def test_send_action_goal_wait_for_result_succeeded(
         if rclpy.ok():
             rclpy.shutdown()
 
-@patch("server.ros2_manager.get_action_names_and_types")
+@patch.object(_rm, "get_action_names_and_types")
 @patch.object(ROS2Manager, "get_request_fields")
 def test_list_actions_returns_actions_with_request_fields(mock_get_fields, mock_get_names):
     try:
@@ -568,10 +574,10 @@ def test_list_actions_returns_actions_with_request_fields(mock_get_fields, mock_
             rclpy.shutdown()
 
 
-@patch("rclpy.spin_until_future_complete")
-@patch("server.ros2_manager.message_to_ordereddict")
-@patch("importlib.import_module")
-@patch("server.ros2_manager.GOAL_CANCEL_RET", new={0: "OK"})
+@patch.object(rclpy, "spin_until_future_complete")
+@patch.object(_rm, "message_to_ordereddict")
+@patch.object(importlib, "import_module")
+@patch.object(_rm, "GOAL_CANCEL_RET", new={0: "OK"})
 def test_cancel_action_goal_cancel_all_success(
     mock_import_module, mock_msg_to_dict, mock_spin
 ):
@@ -660,9 +666,9 @@ def test_cancel_action_goal_cancel_all_success(
     finally:
         rclpy.shutdown()
 
-@patch("rclpy.spin_until_future_complete")
-@patch("server.ros2_manager.message_to_ordereddict")
-@patch("importlib.import_module")
+@patch.object(rclpy, "spin_until_future_complete")
+@patch.object(_rm, "message_to_ordereddict")
+@patch.object(importlib, "import_module")
 def test_action_request_result_success(mock_import_module, mock_msg_to_dict, mock_spin):
     try:
         rclpy.init()
@@ -735,8 +741,8 @@ def test_action_request_result_success(mock_import_module, mock_msg_to_dict, moc
         rclpy.shutdown()
 
 
-@patch("rclpy.spin_until_future_complete")
-@patch("importlib.import_module")
+@patch.object(rclpy, "spin_until_future_complete")
+@patch.object(importlib, "import_module")
 def test_action_request_result_timeout(mock_import_module, mock_spin):
     try:
         rclpy.init()
@@ -813,9 +819,9 @@ class _FakeClock:
     def now(self):
         return self._now
 
-@patch("server.ros2_manager.message_to_ordereddict")
-@patch("importlib.import_module")
-@patch("rclpy.spin_once")
+@patch.object(_rm, "message_to_ordereddict")
+@patch.object(importlib, "import_module")
+@patch.object(rclpy, "spin_once")
 def test_action_subscribe_feedback_filters_and_collects(mock_spin_once, mock_import_module, mock_msg_to_dict):
     try:
         rclpy.init()
@@ -888,7 +894,7 @@ def test_action_subscribe_feedback_filters_and_collects(mock_spin_once, mock_imp
     finally:
         rclpy.shutdown()
 
-@patch("rclpy.spin_once")
+@patch.object(rclpy, "spin_once")
 def test_action_subscribe_status_collects_frames(mock_spin_once, monkeypatch):
     try:
         rclpy.init()
@@ -1048,7 +1054,7 @@ def test_get_qos_for_publisher_topic_superset_real_subs():
 
 from unittest.mock import patch, MagicMock
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_uses_selected_qos(mock_node_cls):
     from std_msgs.msg import String
     from server.ros2_manager import ROS2Manager
@@ -1083,8 +1089,8 @@ def test_publish_to_topic_uses_selected_qos(mock_node_cls):
     assert passed_qos.depth == 5
 
 # Test for list_interfaces
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.get_interfaces")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm, "get_interfaces")
 def test_list_interfaces_success(mock_get_interfaces, mock_node_cls):
     mock_get_interfaces.return_value = {
         "std_msgs": ["msg/String", "msg/Int32"],
@@ -1100,8 +1106,8 @@ def test_list_interfaces_success(mock_get_interfaces, mock_node_cls):
     assert len(result) == 3
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.get_interfaces")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm, "get_interfaces")
 def test_list_interfaces_empty(mock_get_interfaces, mock_node_cls):
     mock_get_interfaces.return_value = {}
     
@@ -1112,7 +1118,7 @@ def test_list_interfaces_empty(mock_get_interfaces, mock_node_cls):
 
 
 # Test for get_request_fields with various message types
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_request_fields_msg_two_part(mock_node_cls):
     manager = ROS2Manager()
     result = manager.get_request_fields("std_msgs/String")
@@ -1121,7 +1127,7 @@ def test_get_request_fields_msg_two_part(mock_node_cls):
     assert result["data"] == "string"
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_request_fields_msg_three_part(mock_node_cls):
     manager = ROS2Manager()
     result = manager.get_request_fields("std_msgs/msg/String")
@@ -1130,7 +1136,7 @@ def test_get_request_fields_msg_three_part(mock_node_cls):
     assert result["data"] == "string"
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_request_fields_srv_three_part(mock_node_cls):
     manager = ROS2Manager()
     result = manager.get_request_fields("example_interfaces/srv/AddTwoInts")
@@ -1139,7 +1145,7 @@ def test_get_request_fields_srv_three_part(mock_node_cls):
     assert "b" in result
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_request_fields_invalid_format(mock_node_cls):
     manager = ROS2Manager()
     result = manager.get_request_fields("invalid")
@@ -1148,7 +1154,7 @@ def test_get_request_fields_invalid_format(mock_node_cls):
     assert "Invalid type format" in result["error"]
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_request_fields_nonexistent_package(mock_node_cls):
     manager = ROS2Manager()
     result = manager.get_request_fields("fake_pkg/msg/FakeMsg")
@@ -1158,7 +1164,7 @@ def test_get_request_fields_nonexistent_package(mock_node_cls):
 
 
 # Test subscribe_topic with various scenarios
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_subscribe_topic_no_types(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = [("/sensor", [])]
@@ -1172,7 +1178,7 @@ def test_subscribe_topic_no_types(mock_node_cls):
     assert "no associated message types" in result["error"]
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_subscribe_topic_invalid_message_format(mock_node_cls):
     mock_node = MagicMock()
     mock_node.get_topic_names_and_types.return_value = [("/sensor", ["invalid"])]
@@ -1187,8 +1193,8 @@ def test_subscribe_topic_invalid_message_format(mock_node_cls):
 
 
 # Test call_service edge cases
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
 def test_call_service_invalid_format(mock_spin, mock_node_cls):
     manager = ROS2Manager()
     
@@ -1198,8 +1204,8 @@ def test_call_service_invalid_format(mock_spin, mock_node_cls):
     assert "Invalid service type format" in result["error"]
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
 def test_call_service_timeout(mock_spin, mock_node_cls):
     try:
         if not rclpy.ok():
@@ -1228,8 +1234,8 @@ def test_call_service_timeout(mock_spin, mock_node_cls):
             rclpy.shutdown()
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.spin_until_future_complete")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "spin_until_future_complete")
 def test_call_service_failed_result(mock_spin, mock_node_cls):
     try:
         if not rclpy.ok():
@@ -1342,7 +1348,7 @@ def test_serialize_msg_dict():
 
 
 # Test publish_to_topic edge cases
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_two_part_format(mock_node_cls):
     from std_msgs.msg import String
 
@@ -1367,7 +1373,7 @@ def test_publish_to_topic_two_part_format(mock_node_cls):
             rclpy.shutdown()
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_format_single_part(mock_node_cls):
     manager = ROS2Manager()
     result = manager.publish_to_topic("/test", "invalid", {"data": "test"})
@@ -1377,7 +1383,7 @@ def test_publish_to_topic_invalid_format_single_part(mock_node_cls):
     assert "valid ROS2 message type" in result["error"]
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_nonexistent_package(mock_node_cls):
     manager = ROS2Manager()
     result = manager.publish_to_topic("/test", "fake_pkg/msg/FakeMsg", {"data": "test"})
@@ -1386,8 +1392,8 @@ def test_publish_to_topic_nonexistent_package(mock_node_cls):
     assert "Failed to load" in result["error"]
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.importlib.import_module")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.importlib, "import_module")
 def test_publish_to_topic_publish_exception(mock_import, mock_node_cls):
     from std_msgs.msg import String
     
@@ -1418,7 +1424,7 @@ def test_publish_to_topic_publish_exception(mock_import, mock_node_cls):
 
 
 # Test QoS profile determination
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_qos_profile_no_publishers(mock_node_cls):
     from rclpy.qos import QoSPresetProfiles
     
@@ -1432,7 +1438,7 @@ def test_get_qos_profile_no_publishers(mock_node_cls):
     assert qos == QoSPresetProfiles.SYSTEM_DEFAULT.value
 
 
-@patch("server.ros2_manager.ServiceNode")
+@patch.object(_rm, "ServiceNode")
 def test_get_qos_profile_all_reliable(mock_node_cls):
     from rclpy.qos import QoSReliabilityPolicy
     
@@ -1452,9 +1458,9 @@ def test_get_qos_profile_all_reliable(mock_node_cls):
 
 
 # Test shutdown
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.ok")
-@patch("server.ros2_manager.rclpy.shutdown")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "ok")
+@patch.object(_rm.rclpy, "shutdown")
 def test_shutdown_success(mock_shutdown, mock_ok, mock_node_cls):
     mock_ok.return_value = True
     
@@ -1464,9 +1470,9 @@ def test_shutdown_success(mock_shutdown, mock_ok, mock_node_cls):
     mock_shutdown.assert_called_once()
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.ok")
-@patch("server.ros2_manager.rclpy.shutdown")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "ok")
+@patch.object(_rm.rclpy, "shutdown")
 def test_shutdown_not_initialized(mock_shutdown, mock_ok, mock_node_cls):
     mock_ok.return_value = False
     
@@ -1476,9 +1482,9 @@ def test_shutdown_not_initialized(mock_shutdown, mock_ok, mock_node_cls):
     mock_shutdown.assert_not_called()
 
 
-@patch("server.ros2_manager.ServiceNode")
-@patch("server.ros2_manager.rclpy.ok")
-@patch("server.ros2_manager.rclpy.shutdown")
+@patch.object(_rm, "ServiceNode")
+@patch.object(_rm.rclpy, "ok")
+@patch.object(_rm.rclpy, "shutdown")
 def test_shutdown_exception(mock_shutdown, mock_ok, mock_node_cls):
     mock_ok.return_value = True
     mock_shutdown.side_effect = Exception("Shutdown error")
