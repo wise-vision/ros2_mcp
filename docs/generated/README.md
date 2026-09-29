@@ -20,7 +20,7 @@ docker run --rm -v "$PWD":/ws -w /ws \
     pip install -q --break-system-packages uv
     uv sync --dev -q --python /usr/bin/python3
     . /opt/ros/jazzy/setup.sh
-    export PYTHONPATH=.
+    export PYTHONPATH=.:$PYTHONPATH  # keep the ROS site-packages that setup.sh added
     uv run --python /usr/bin/python3 python scripts/gen_tool_docs.py
     chown -R '"$(id -u):$(id -g)"' docs/generated'
 ```

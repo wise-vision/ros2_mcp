@@ -1,8 +1,8 @@
 {
   "provenance": {
     "package_version": "0.1.0",
-    "git_describe": "2511-9-g3bd93b5",
-    "source_sha": "3bd93b56976ca9ebb6092e6fda027987729973d9"
+    "git_describe": "2606-3-g47b4918",
+    "source_sha": "47b4918658f44f77a0e46da223aba5d9cca64ab6"
   },
   "tools": [
     {
@@ -48,7 +48,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_action_subscribe_feedback",
@@ -88,7 +88,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_action_subscribe_status",
@@ -116,7 +116,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_cancel_action_goal",
@@ -158,7 +158,24 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": true
+    },
+    {
+      "name": "ros2_get_map_as_image",
+      "description": "Get one nav_msgs/msg/OccupancyGrid message from a topic and return it as a PNG image (base64-encoded). Unknown cells rendered as gray, free as white, occupied as black.",
+      "input_schema": {
+        "properties": {
+          "topic_name": {
+            "description": "The name of the ROS 2 topic publishing nav_msgs/msg/OccupancyGrid (e.g., /map).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_name"
+        ],
+        "type": "object"
+      },
+      "mutating": false
     },
     {
       "name": "ros2_get_message_fields",
@@ -175,7 +192,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_get_messages_stored_in_influx_data_base",
@@ -210,7 +227,66 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
+    },
+    {
+      "name": "ros2_get_pointcloud_as_bev",
+      "description": "Get one sensor_msgs/msg/PointCloud2 message from a topic and return it as a PNG image (base64-encoded) rendered as a bird's-eye view (XY projection). Supports coloring by intensity/height/rgb.",
+      "input_schema": {
+        "properties": {
+          "color_mode": {
+            "default": "intensity",
+            "description": "Coloring mode: 'intensity' | 'height' | 'rgb'.",
+            "enum": [
+              "intensity",
+              "height",
+              "rgb"
+            ],
+            "type": "string"
+          },
+          "colormap": {
+            "default": "jet",
+            "description": "Colormap for intensity/height: 'jet' | 'gray'.",
+            "enum": [
+              "jet",
+              "gray"
+            ],
+            "type": "string"
+          },
+          "max_pixels": {
+            "default": 2048,
+            "description": "Max image size per axis (to cap huge clouds).",
+            "type": "integer"
+          },
+          "resolution": {
+            "default": 0.05,
+            "description": "Meters per pixel for the BEV image.",
+            "type": "number"
+          },
+          "timeout": {
+            "default": 5.0,
+            "description": "Seconds to wait for a message.",
+            "type": "number"
+          },
+          "topic_name": {
+            "description": "ROS 2 topic with PointCloud2 (e.g., /points).",
+            "type": "string"
+          },
+          "zmax": {
+            "description": "Max Z to include (meters).",
+            "type": "number"
+          },
+          "zmin": {
+            "description": "Min Z to include (meters).",
+            "type": "number"
+          }
+        },
+        "required": [
+          "topic_name"
+        ],
+        "type": "object"
+      },
+      "mutating": false
     },
     {
       "name": "ros2_interface_list",
@@ -219,7 +295,7 @@
         "properties": {},
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_list_actions",
@@ -229,7 +305,54 @@
         "properties": {},
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
+    },
+    {
+      "name": "ros2_publish_multiple_topics",
+      "description": "Publish messages to multiple ROS 2 topics simultaneously with optional frequency and duration.",
+      "input_schema": {
+        "properties": {
+          "topics": {
+            "description": "List of topics to publish to.",
+            "items": {
+              "properties": {
+                "data": {
+                  "description": "Message content as dictionary",
+                  "type": "object"
+                },
+                "duration": {
+                  "default": 5.0,
+                  "description": "Duration in seconds to publish (optional)",
+                  "type": "number"
+                },
+                "frequency": {
+                  "default": 1.0,
+                  "description": "Publishing frequency in Hz (optional)",
+                  "type": "number"
+                },
+                "message_type": {
+                  "type": "string"
+                },
+                "topic_name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "topic_name",
+                "message_type",
+                "data"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "type": "object"
+      },
+      "mutating": true
     },
     {
       "name": "ros2_send_action_goal",
@@ -267,7 +390,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": true
     },
     {
       "name": "ros2_service_call",
@@ -299,7 +422,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": true
     },
     {
       "name": "ros2_service_list",
@@ -308,7 +431,7 @@
         "properties": {},
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_stream_next",
@@ -328,7 +451,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_stream_next_image",
@@ -348,7 +471,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_stream_start",
@@ -406,7 +529,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_stream_stop",
@@ -423,7 +546,45 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
+    },
+    {
+      "name": "ros2_subscribe_multiple_topics",
+      "description": "Subscribe to multiple ROS 2 topics at once and return received messages.",
+      "input_schema": {
+        "properties": {
+          "topics": {
+            "description": "List of topics to subscribe to.",
+            "items": {
+              "properties": {
+                "duration": {
+                  "default": 0.0,
+                  "description": "How many seconds to listen (optional).",
+                  "type": "number"
+                },
+                "message_limit": {
+                  "default": 0,
+                  "description": "Number of messages to collect (optional).",
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "type": "object"
+      },
+      "mutating": false
     },
     {
       "name": "ros2_topic_list",
@@ -432,7 +593,7 @@
         "properties": {},
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_topic_publish",
@@ -467,7 +628,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": true
     },
     {
       "name": "ros2_topic_subscribe",
@@ -492,7 +653,7 @@
         ],
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_viewer_app",
@@ -525,7 +686,7 @@
         },
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     },
     {
       "name": "ros2_viewer_config",
@@ -535,7 +696,7 @@
         "properties": {},
         "type": "object"
       },
-      "mutating": "unknown"
+      "mutating": false
     }
   ]
 }
