@@ -1,0 +1,236 @@
+name: docs-sync
+
+# Proposes a docs update on wisevision.tech after a merge that touched the
+# server, the README or the install docs. Threat model (review wvrevive-2809
+# §3 risk 5): merged code and commit text are UNTRUSTED, so the job that runs
+# the model holds only model auth, cannot run commands or reach the network
+# beyond the model API, and emits nothing but a patch. A deterministic
+# validator (no secrets) gates that patch, and only then does a separate job
+# that never runs a model use the site token to open a DRAFT PR. Nothing here
+# merges. Never switch this to a PR-target (base-context) trigger.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'server/**'
+      - 'README.md'
+      - 'installation/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-sync-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  SITE_REPO: wise-vision/wisevision-website
+
+jobs:
+  propose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      ran: ${{ steps.gate.outputs.ran }}
+      site_sha: ${{ steps.site.outputs.sha }}
+    steps:
+      - name: Harden runner (block egress except model API + GitHub + npm)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          allowed-endpoints: >
+            api.anthropic.com:443
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            registry.npmjs.org:443
+            *.actions.githubusercontent.com:443
+            *.blob.core.windows.net:443
+
+      - name: Is a model secret configured?
+        id: gate
+        env:
+          HAS_MODEL_KEY: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+        run: |
+          if [ "$HAS_MODEL_KEY" = "true" ]; then
+            echo "ran=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=docs-sync skipped::ANTHROPIC_API_KEY is not set on this repo; no docs patch proposed."
+            echo "ran=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout ros2_mcp at the pushed SHA
+        if: steps.gate.outputs.ran == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: ros2_mcp
+          persist-credentials: false
+
+      - name: Checkout the website (read-only, anonymous)
+        if: steps.gate.outputs.ran == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SITE_REPO }}
+          ref: main
+          path: site
+          token: ''
+          persist-credentials: false
+
+      - name: Record website base SHA
+        id: site
+        if: steps.gate.outputs.ran == 'true'
+        run: echo "sha=$(git -C site rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Claude Code CLI (pinned)
+        if: steps.gate.outputs.ran == 'true'
+        run: npm install -g @anthropic-ai/claude-code@2.1.285
+
+      - name: Propose docs patch (model; file tools only)
+        if: steps.gate.outputs.ran == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: bash ros2_mcp/scripts/docs_sync_propose.sh ros2_mcp site "$BASE_SHA" "$HEAD_SHA" out
+
+      - name: Upload patch
+        if: steps.gate.outputs.ran == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-sync-patch
+          path: out/patch.diff
+          if-no-files-found: error
+          retention-days: 14
+
+  validate:
+    needs: propose
+    if: needs.propose.outputs.ran == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      ok: ${{ steps.verdict.outputs.ok }}
+      empty: ${{ steps.verdict.outputs.empty }}
+      safety_review: ${{ steps.verdict.outputs.safety_review }}
+    steps:
+      - name: Checkout ros2_mcp (validator + tool classification)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: ros2_mcp
+          persist-credentials: false
+
+      - name: Checkout the website at the proposal base
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SITE_REPO }}
+          ref: ${{ needs.propose.outputs.site_sha }}
+          path: site
+          token: ''
+          persist-credentials: false
+
+      - name: Download patch
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-sync-patch
+          path: in
+
+      - name: Validate patch
+        id: verdict
+        run: |
+          set +e
+          python3 ros2_mcp/scripts/docs_sync_validate.py in/patch.diff \
+            --site-dir site \
+            --tools-json ros2_mcp/docs/generated/tools.json \
+            --verdict-out verdict.json
+          rc=$?
+          set -e
+          cat verdict.json
+          echo "ok=$(jq -r .ok verdict.json)" >> "$GITHUB_OUTPUT"
+          echo "empty=$(jq -r .empty verdict.json)" >> "$GITHUB_OUTPUT"
+          echo "safety_review=$(jq -r .safety_review verdict.json)" >> "$GITHUB_OUTPUT"
+          exit $rc
+
+  publish:
+    needs: [propose, validate]
+    if: needs.validate.outputs.ok == 'true' && needs.validate.outputs.empty != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Is the site token configured?
+        id: gate
+        env:
+          HAS_SITE_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN != '' }}
+        run: |
+          if [ "$HAS_SITE_TOKEN" = "true" ]; then
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice title=docs-sync not published::DOCS_SYNC_TOKEN is not set; the validated patch is kept as the docs-sync-patch artifact."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout ros2_mcp (validator only)
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: ros2_mcp
+          persist-credentials: false
+
+      - name: Checkout the website at the proposal base
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ env.SITE_REPO }}
+          ref: ${{ needs.propose.outputs.site_sha }}
+          path: site
+          token: ${{ secrets.DOCS_SYNC_TOKEN }}
+          persist-credentials: true
+
+      - name: Download patch
+        if: steps.gate.outputs.go == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-sync-patch
+          path: in
+
+      - name: Re-validate (defence in depth)
+        if: steps.gate.outputs.go == 'true'
+        run: |
+          python3 ros2_mcp/scripts/docs_sync_validate.py in/patch.diff \
+            --site-dir site --tools-json ros2_mcp/docs/generated/tools.json
+
+      - name: Apply, push branch, open draft PR
+        if: steps.gate.outputs.go == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.DOCS_SYNC_TOKEN }}
+          SAFETY: ${{ needs.validate.outputs.safety_review }}
+          SRC_SHA: ${{ github.sha }}
+          SRC_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          cd site
+          branch="docs-sync/${SRC_SHA}"
+          git switch -c "$branch"
+          git apply --index ../in/patch.diff
+          git -c user.name="docs-sync[bot]" -c user.email="hello@wisevision.tech" \
+            commit -m "docs: sync with ${SRC_REPO}@${SRC_SHA:0:7}"
+          git push origin "$branch"
+          body=$(printf 'Automated docs proposal for %s@%s.\n\nProduced by a model over the merged change, then passed the deterministic validator (docs paths only, link allowlist, secret and HTML checks). Review every line before merging; this bot never merges.\n' "$SRC_REPO" "$SRC_SHA")
+          gh pr create --repo "$SITE_REPO" --draft --base main --head "$branch" \
+            --title "docs: sync with ros2_mcp ${SRC_SHA:0:7}" --body "$body"
+          if [ "$SAFETY" = "true" ]; then
+            gh label create safety-review --repo "$SITE_REPO" --color B60205 \
+              --description "Touches security, actuation or mutating tools" 2>/dev/null || true
+            gh pr edit "$branch" --repo "$SITE_REPO" --add-label safety-review
+          fi
