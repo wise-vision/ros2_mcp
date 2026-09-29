@@ -1,15 +1,35 @@
 
-# ROS2 MCP Server
+# ROS2 MCP
 
 [![Discord](https://img.shields.io/badge/Discord-Join%20Us-5865F2?logo=discord)](https://discord.gg/9aSw6HbUaw)
 ![ROS 2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)
 ![ROS 2 Jazzy](https://img.shields.io/badge/ROS2-Jazzy-purple)
 [![Docker](https://img.shields.io/badge/Docker-MCP-blue?logo=docker)](https://hub.docker.com/mcp/server/ros2/overview)
-[![GitHub stars](https://img.shields.io/github/stars/wise-vision/ros2_mcp?style=social)](https://github.com/wise-vision/ros2_mcp/stargazers)
+[![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen)](LICENSE)
+[![Docs](https://img.shields.io/badge/docs-wisevision.tech%2Fdocs-3CFFB4)](https://wisevision.tech/docs)
 
 ![Flow graph](docs/assets/flow-graph.gif)
 
-A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2**. This server enables AI tooling to connect with **ROS 2** nodes, topics, and services using the **MCP** standard over **stdio**. Designed to be **the easiest** **ROS 2** MCP server to configure.
+**ROS2 MCP** is an open-source (MPL-2.0) **Model Context Protocol (MCP)** server for **ROS 2** Humble and Jazzy, written in Python. It lets AI tools such as Claude, Cursor and Codex list, subscribe to, publish on and call ROS 2 topics, services and actions over **stdio** (or SSE). It is listed in Docker's official MCP catalog as [`mcp/ros2`](https://hub.docker.com/mcp/server/ros2/overview).
+
+Every tool is free and open source, including multi-topic subscribe/publish, map-to-image and point-cloud bird's-eye view.
+
+📚 **Documentation:** [wisevision.tech/docs](https://wisevision.tech/docs)
+
+# 🔒 Security: read-only mode
+
+An agent connected to a real robot can move it. Start the server in **read-only mode** to let the agent observe but not act:
+
+```bash
+ROS2_MCP_READONLY=1 uv run mcp_ros_2_server      # env var
+uv run mcp_ros_2_server --read-only              # or CLI flag
+docker run -i --rm -e ROS2_MCP_READONLY=1 mcp/ros2
+```
+
+In read-only mode the tools that change robot state are **not registered at all**: they do not appear in `list_tools`, and calling one returns an `Unknown tool` error. The hidden tools are:
+`ros2_topic_publish`, `ros2_publish_multiple_topics`, `ros2_service_call`, `ros2_send_action_goal`, `ros2_cancel_action_goal`.
+Read-only mode fails closed: only tools that were explicitly reviewed as read-only (listed in [`server/tool_safety.py`](server/tool_safety.py)) are registered, and a test fails if a new tool is added without being classified.
+`ros2_service_call` is hidden because the server cannot know whether an arbitrary service has side effects.
 
 # ✨ Tools
 - List available topics
@@ -26,6 +46,10 @@ A **Python** implementation of the **Model Context Protocol (MCP)** for **ROS 2*
 - Subscribes to status updates of an action
 - Cancels a specific goal or all active goals
 - Get messages from [WiseVision Data Black Box](https://github.com/wise-vision/wisevision_data_black_box) ([InfluxDB](https://www.influxdata.com) alternative to [Rosbag2](https://github.com/ros2/rosbag2))
+- Subscribe to several topics at once (images returned as PNG)
+- Publish to several topics at once at a set frequency and duration
+- Get a `nav_msgs/OccupancyGrid` map as a PNG image
+- Get a `sensor_msgs/PointCloud2` as a bird's-eye-view PNG image
 
 
 # 🤖 Available Prompts
@@ -72,7 +96,7 @@ Compare two ROS2 topics and report differences in their messages with detailed f
 
 ## Why this ROS 2 MCP server ⭐
 
-- **⚡ 1-minute setup** - World's easiest ROS 2 MCP configuration
+- **⚡ 1-minute setup** - one `docker run` or `uv run` command
 - **0️⃣ Zero-friction setup** - stdio transport, no brokers, no webserver.
 - **🔌 Auto type discovery** - a built-in “list interfaces” tool dynamically enumerates available topics and services together with their message/service definitions (fields, types, schema) — so the client always knows exactly what data can be published or called.
 - **✨ Nested field support**: Handle complex message structures with ease.
@@ -85,44 +109,13 @@ Compare two ROS2 topics and report differences in their messages with detailed f
 
 **Perfect for:** Robotics developers, researchers, students, and anyone working with ROS 2 who wants to leverage AI for faster development and debugging.
 
-If you find this useful, please ⭐ star the repo — it helps others discover it.
-
 🚀 **Enjoying this project?**
 Feel free to contribute or reach out for support! Write issues, submit PRs, or join our [Discord community](https://discord.gg/9aSw6HbUaw) to connect with other ROS 2 and AI enthusiasts.
 
-## 🏢 Commercial use and support
-
-This project is free and MPL-2.0 licensed — you can use it in a commercial
-product without asking anyone.
-
-If you are putting it on a real machine and want more than the public issue
-tracker, WiseVision (the maintainers) offer paid work around it:
-
-- **Integration support** — getting the server running against your stack, your
-  message types, your QoS constraints.
-- **Custom tools and prompts** — handlers for your own interfaces, beyond the
-  built-in topic/service/action set.
-- **Priority fixes** — a defect that blocks your deployment, handled on a
-  schedule instead of a backlog.
-
-**Start here:
-[Discussions → Q&A](https://github.com/wise-vision/ros2_mcp/discussions/categories/q-a).**
-Open a thread describing your robot, your ROS 2 distro, and what you need; a
-maintainer replies there. Public by default, which also means the next person
-with your problem can read the answer. Nothing is auto-priced — tell us the
-problem first.
-
-Commercial or partnership inquiries that can't be public: email
-**Adam-krawczyk@outlook.com**. Everything else — bugs, questions, ideas —
-belongs in issues or Discussions.
-
-Want to see it on real data before talking? The
+Want to see it on real data? The
 [forklift rosbag demo](examples/forklift_rosbag_demo/README.md) replays a
 warehouse forklift recording and walks through three MCP calls in about ten
 minutes.
-
-Not commercial? Nothing changes: issues, PRs, and
-[Discord](https://discord.gg/9aSw6HbUaw) stay open and free.
 
 ## 🤝 Contributing
 
@@ -165,9 +158,13 @@ The server performs a one-time warm-up on the first tool call in container envir
 |------|-------------|--------|---------|
 | **`ros2_topic_list`** | Returns list of available topics | – | `topic_name` (string): Topic name <br> `topic_type` (string): Message type |
 | **`ros2_topic_subscribe`** | Subscribes to a ROS 2 topic and collects messages for a duration or message limit | `topic_name` (string) <br> `duration` (float) <br> `message_limit` (int) <br> *(defaults: first msg, 5s)* | `messages` <br> `count` <br> `duration` |
-| **`ros2_get_messages`** | Retrieves past messages from a topic (data black box) | `topic_name` (string) <br> `message_type` (string) <br> `number_of_messages` (int) <br> `time_start` (str) <br> `time_end` (str) | `timestamps` <br> `messages` |
+| **`ros2_get_messages_stored_in_influx_data_base`** | Retrieves past messages from a topic (data black box) | `topic_name` (string) <br> `message_type` (string) <br> `number_of_messages` (int) <br> `time_start` (str) <br> `time_end` (str) | `timestamps` <br> `messages` |
 | **`ros2_get_message_fields`** | Gets field names and types for a message type | `message_type` (string) | Field names + types |
-| **`ros2_topic_publish`** | Publishes message to a topic | `topic_name` (string) <br> `message_type` (string) <br> `data` (dict) | `status` |
+| **`ros2_topic_publish`** | Publishes message to a topic *(hidden in read-only mode)* | `topic_name` (string) <br> `message_type` (string) <br> `data` (dict) | `status` |
+| **`ros2_subscribe_multiple_topics`** | Subscribes to several topics at once; `sensor_msgs/Image` and `CompressedImage` messages are returned as PNG images | `topics[]` (array of {`name` (string), `duration` (float), `message_limit` (int)}) *(default per topic: 5 s)* | per topic: `count` + messages (text) or images (PNG) \| `error` |
+| **`ros2_publish_multiple_topics`** | Publishes to several topics simultaneously at a given frequency for a given duration *(hidden in read-only mode)* | `topics[]` (array of {`topic_name` (string), `message_type` (string), `data` (object), `frequency` (Hz, default 1.0), `duration` (s, default 5.0)}) | per topic: status |
+| **`ros2_get_map_as_image`** | Gets one `nav_msgs/msg/OccupancyGrid` and returns it as a PNG (unknown = gray, free = white, occupied = black) | `topic_name` (string, e.g. `/map`) | PNG image |
+| **`ros2_get_pointcloud_as_bev`** | Gets one `sensor_msgs/msg/PointCloud2` and renders a bird's-eye view (XY projection) PNG | `topic_name` (string) <br> `resolution` (m/px, default 0.05) <br> `zmin`/`zmax` (m) <br> `timeout` (s, default 5.0) <br> `max_pixels` (int, default 2048) <br> `color_mode` (`intensity`\|`height`\|`rgb`) <br> `colormap` (`jet`\|`gray`) | PNG image |
 
 ---
 
@@ -175,14 +172,14 @@ The server performs a one-time warm-up on the first tool call in container envir
 | Tool | Description | Inputs | Outputs |
 |------|-------------|--------|---------|
 | **`ros2_service_list`** | Returns list of available services | – | `service_name` (string) <br> `service_type` (string) <br> `request_fields` (array) |
-| **`ros2_service_call`** | Calls a ROS 2 service | `service_name` (string) <br> `service_type` (string) <br> `fields` (array) <br> `force_call` (bool, default: false) | `result` (string) <br> `error` (string, if any) |
+| **`ros2_service_call`** | Calls a ROS 2 service *(hidden in read-only mode)* | `service_name` (string) <br> `service_type` (string) <br> `fields` (array) <br> `force_call` (bool, default: false) | `result` (string) <br> `error` (string, if any) |
 
 #### 🎯 **Actions**
 | Tool | Description | Inputs | Outputs |
 |------|-------------|--------|---------|
 | **`ros2_list_actions`** | Returns list of available ROS 2 actions with their types and request fields | – | `actions[]` (array) <br> └ `name` (string) <br> └ `types[]` (array of string) <br> └ `request_fields` (array) |
-| **`ros2_send_action_goal`** | Sends a goal to an action. Optionally waits for the result. | `action_name` (string) <br> `action_type` (string) <br> `goal_fields` (object) <br> `wait_for_result` (bool, default: false) <br> `timeout_sec` (number, default: 60.0) | `accepted` (bool) <br> `goal_id` (string\|null) <br> `send_goal_stamp` (object\|null) <br> `waited` (bool) <br> `result_timeout_sec` (number\|null) <br> `status_code` (int\|null) <br> `status` (string\|null) <br> `result` (object\|null) \| `error` (string) |
-| **`ros2_cancel_action_goal`** | Cancels a specific goal or all goals for an action | `action_name` (string) <br> `goal_id_hex` (string, required if `cancel_all`=false) <br> `cancel_all` (bool, default: false) <br> `stamp_sec` (int, default: 0) <br> `stamp_nanosec` (int, default: 0) <br> `wait_timeout_sec` (number, default: 3.0) | `service` (string) <br> `return_code` (int) <br> `return_code_text` (string) <br> `goals_canceling[]` (array of {`goal_id`, `stamp`}) \| `error` (string) |
+| **`ros2_send_action_goal`** | Sends a goal to an action. Optionally waits for the result. *(hidden in read-only mode)* | `action_name` (string) <br> `action_type` (string) <br> `goal_fields` (object) <br> `wait_for_result` (bool, default: false) <br> `timeout_sec` (number, default: 60.0) | `accepted` (bool) <br> `goal_id` (string\|null) <br> `send_goal_stamp` (object\|null) <br> `waited` (bool) <br> `result_timeout_sec` (number\|null) <br> `status_code` (int\|null) <br> `status` (string\|null) <br> `result` (object\|null) \| `error` (string) |
+| **`ros2_cancel_action_goal`** | Cancels a specific goal or all goals for an action *(hidden in read-only mode)* | `action_name` (string) <br> `goal_id_hex` (string, required if `cancel_all`=false) <br> `cancel_all` (bool, default: false) <br> `stamp_sec` (int, default: 0) <br> `stamp_nanosec` (int, default: 0) <br> `wait_timeout_sec` (number, default: 3.0) | `service` (string) <br> `return_code` (int) <br> `return_code_text` (string) <br> `goals_canceling[]` (array of {`goal_id`, `stamp`}) \| `error` (string) |
 | **`ros2_action_request_result`** | Waits for the RESULT of a given goal via GetResult | `action_name` (string) <br> `action_type` (string) <br> `goal_id_hex` (string, 32-char UUID) <br> `timeout_sec` (number\|null, default: 60.0) <br> `wait_for_service_sec` (number, default: 3.0) | `service` (string) <br> `goal_id` (string) <br> `waited` (bool) <br> `result_timeout_sec` (number\|null) <br> `status_code` (int\|null) <br> `status` (string\|null) <br> `result` (object\|null) \| `error` (string) |
 | **`ros2_action_subscribe_feedback`** | Subscribes to feedback messages for an action. Can filter by goal_id. Collects messages for duration or max count. | `action_name` (string) <br> `action_type` (string) <br> `goal_id_hex` (string\|null) <br> `duration_sec` (number, default: 5.0) <br> `max_messages` (int, default: 100) | `topic` (string) <br> `action_type` (string) <br> `goal_id_filter` (string\|null) <br> `duration_sec` (number) <br> `messages[]` (array of {`goal_id`, `feedback`, `recv_stamp`}) \| `error` (string) |
 | **`ros2_action_subscribe_status`** | Subscribes to an action's status topic and returns collected status frames | `action_name` (string) <br> `duration_sec` (number, default: 5.0) <br> `max_messages` (int, default: 100) | `topic` (string) <br> `duration_sec` (number) <br> `frames[]` (array of {`stamp`, `statuses[]`}) \| `error` (string) |
@@ -209,4 +206,4 @@ We built this server to make AI‑assisted ROS 2 development fast and reliable. 
 - Work seamlessly with GitHub Copilot in VS Code and other MCP clients
 - Use a simple stdio transport to avoid network complexity
 
-After dogfooding it, we open‑sourced the project to help the broader ROS 2 community build faster with AI. It’s now useful not only for development, but also for controlling robots, running QoS experiments, and analyzing live data and robot/swarm state. The project is actively maintained—features and improvements ship regularly based on user feedback. If this project helps you, please star the repo and share your use case!
+After dogfooding it, we open‑sourced the project (MPL-2.0) to help the broader ROS 2 community build faster with AI. It’s now useful not only for development, but also for controlling robots, running QoS experiments, and analyzing live data and robot/swarm state. The project is actively maintained—features and improvements ship regularly based on user feedback. If this project helps you, share your use case in [Discussions](https://github.com/wise-vision/ros2_mcp/discussions)!

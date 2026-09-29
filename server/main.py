@@ -7,19 +7,12 @@
 #  License, v. 2.0. If a copy of the MPL was not distributed with this
 #  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
+import sys
 import rclpy
 import argparse
 import asyncio
-from .server import app
+from .server import app, configure_tools, is_read_only, read_only_requested
 from .transport import TransportMixin
-
-
-try:
-    import extensions  # noqa
-
-    print("Private extensions loaded successfully")
-except ImportError as e:
-    print(f"{e}.\nRunning with public tools only")
 
 
 def main():
@@ -32,9 +25,17 @@ def main():
         choices=["stdio", "sse"],
         help="Transport being use in MCP server",
     )
+    parser.add_argument(
+        "--read-only",
+        action="store_true",
+        help="Do not register tools that publish, call services or send/cancel action goals "
+        "(same as ROS2_MCP_READONLY=1)",
+    )
     args, _ = parser.parse_known_args()
     transport: str = args.transport
-    print(f'Starting MCP - ROS 2 server using "{transport}" transport')
+    configure_tools(args.read_only or read_only_requested())
+    mode = "read-only" if is_read_only() else "read-write"
+    print(f'Starting ROS2 MCP server using "{transport}" transport ({mode})', file=sys.stderr)
 
     rclpy.init()
 

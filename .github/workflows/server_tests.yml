@@ -11,13 +11,25 @@ on:
 
 jobs:
   test:
+    name: test (${{ matrix.ros_distro }})
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [humble, jazzy]
+
     container:
-      image: ros:humble-ros-base
+      image: ros:${{ matrix.ros_distro }}-ros-base
 
     env:
       PYTHONPATH: .
+      # Use the distro's system Python (3.10 on Humble, 3.12 on Jazzy) so rclpy's C extensions
+      # load; .python-version pins 3.10, which would make uv fetch the wrong interpreter on Jazzy.
+      UV_PYTHON: /usr/bin/python3
+      # ROS puts launch_testing pytest plugins on PYTHONPATH; the tests do not use them and
+      # on Jazzy they fail plugin validation against the pytest version in uv.lock.
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
 
     steps:
     - name: Checkout code
@@ -28,21 +40,22 @@ jobs:
         apt-get update && apt-get install -y \
           python3-pip \
           python3-colcon-common-extensions \
-          ros-humble-example-interfaces \
-          ros-humble-mavros-msgs \
-          ros-humble-action-tutorials-interfaces \
+          ros-${{ matrix.ros_distro }}-example-interfaces \
+          ros-${{ matrix.ros_distro }}-mavros-msgs \
+          ros-${{ matrix.ros_distro }}-action-tutorials-interfaces \
+          ros-${{ matrix.ros_distro }}-nav-msgs \
+          ros-${{ matrix.ros_distro }}-sensor-msgs \
           curl \
           ca-certificates \
           gnupg
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get install -y nodejs
-        python3 -m pip install --upgrade pip
-        pip install uv
+        # Jazzy (Ubuntu 24.04) marks the system Python as externally managed (PEP 668).
+        pip install uv || pip install uv --break-system-packages
 
     - name: Create and sync uv virtual environment
       run: |
         uv venv .venv
-        uv pip install --upgrade pip
         uv sync --dev  # installs deps from uv.lock
 
     - name: Build ROS 2 Viewer UI
@@ -51,9 +64,7 @@ jobs:
         npm ci
         npm run build
 
-
-
     - name: Run tests
       run: |
-        . /opt/ros/humble/setup.sh
+        . /opt/ros/${{ matrix.ros_distro }}/setup.sh
         uv run pytest
