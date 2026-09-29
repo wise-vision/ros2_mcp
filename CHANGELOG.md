@@ -2,7 +2,7 @@
 
 All notable changes to ROS2 MCP are recorded here. Releases are tagged `YYMM`.
 
-## 2610 (unreleased)
+## 2610 (2026-09-29)
 
 ### Added
 - **Former Pro tools are now free and open source under MPL-2.0**, in the main package, with no licence key:
