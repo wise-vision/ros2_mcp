@@ -6,7 +6,8 @@
 ![ROS 2 Jazzy](https://img.shields.io/badge/ROS2-Jazzy-purple)
 [![Docker](https://img.shields.io/badge/Docker-MCP-blue?logo=docker)](https://hub.docker.com/mcp/server/ros2/overview)
 [![License: MPL-2.0](https://img.shields.io/badge/License-MPL--2.0-brightgreen)](LICENSE)
-[![Docs](https://img.shields.io/badge/docs-wisevision.tech%2Fdocs-3CFFB4)](https://wisevision.tech/docs)
+[![Website](https://img.shields.io/badge/site-wisevision.tech-07080B)](https://wisevision.tech)
+[![Docs](https://img.shields.io/badge/docs-wisevision.tech%2Fdocs-3CFFB4)](https://wisevision.tech/docs/)
 
 ![Flow graph](docs/assets/flow-graph.gif)
 
@@ -14,7 +15,7 @@
 
 Every tool is free and open source, including multi-topic subscribe/publish, map-to-image and point-cloud bird's-eye view.
 
-📚 **Documentation:** [wisevision.tech/docs](https://wisevision.tech/docs)
+🌐 **Website:** [wisevision.tech](https://wisevision.tech) · 📚 **Documentation:** [wisevision.tech/docs](https://wisevision.tech/docs/)
 
 # 🔒 Security: read-only mode
 
