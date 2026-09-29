@@ -1,0 +1,541 @@
+{
+  "provenance": {
+    "package_version": "0.1.0",
+    "git_describe": "2606-2-g66f3f2d",
+    "source_sha": "66f3f2d40eea2eb976a40a9165c371cb76500567"
+  },
+  "tools": [
+    {
+      "name": "ros2_action_request_result",
+      "description": "Wait for the RESULT of a ROS 2 action (GetResult) for a given goal_id. Before **every** use of this tool, the agent should ensure the target action exists (e.g., by calling 'ros2_list_actions').",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_name": {
+            "description": "Action name, e.g. '/fibonacci'",
+            "type": "string"
+          },
+          "action_type": {
+            "description": "Full action type, e.g. 'example_interfaces/action/Fibonacci' or 'pkg/ActionName'",
+            "type": "string"
+          },
+          "goal_id_hex": {
+            "description": "32-char UUID hex of the goal (no dashes).",
+            "type": "string"
+          },
+          "timeout_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 60.0,
+            "description": "Seconds to wait for GetResult; null → wait indefinitely."
+          },
+          "wait_for_service_sec": {
+            "default": 3.0,
+            "description": "Seconds to wait for the GetResult service to appear.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "action_name",
+          "action_type",
+          "goal_id_hex"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_action_subscribe_feedback",
+      "description": "Subscribe to feedback messages of a ROS 2 action. Optionally filter by goal_id_hex. Collects feedback for a fixed duration or until a maximum number of messages is received. Each message contains goal_id, feedback payload, and receive timestamp.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_name": {
+            "description": "Action name, e.g. '/fibonacci'",
+            "type": "string"
+          },
+          "action_type": {
+            "description": "Full action type, e.g. 'example_interfaces/action/Fibonacci' or 'pkg/ActionName'",
+            "type": "string"
+          },
+          "duration_sec": {
+            "default": 5.0,
+            "description": "How many seconds to keep spinning and collecting feedback.",
+            "type": "number"
+          },
+          "goal_id_hex": {
+            "description": "Optional 32-char UUID hex of the goal (no dashes) to filter feedbacks.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_messages": {
+            "default": 100,
+            "description": "Maximum number of feedback messages to collect.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_name",
+          "action_type"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_action_subscribe_status",
+      "description": "Subscribe to '/<action>/_action/status' (action_msgs/msg/GoalStatusArray) and return a snapshot of status frames over a time window. Each frame contains goal_id, accept_stamp, status_code and status text.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_name": {
+            "description": "Action name, e.g. '/fibonacci'",
+            "type": "string"
+          },
+          "duration_sec": {
+            "default": 5.0,
+            "description": "How many seconds to collect status frames.",
+            "type": "number"
+          },
+          "max_messages": {
+            "default": 100,
+            "description": "Max number of individual statuses to collect in total.",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action_name"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_cancel_action_goal",
+      "description": "Cancel a ROS 2 action goal via '/<action>/cancel_goal' (action_msgs/srv/CancelGoal). You can cancel a specific goal by goal_id_hex or cancel all matching goals using cancel_all=True. Optionally limit cancellation to goals accepted before a given stamp (sec/nanosec). Before **every** use of this tool, the agent should ensure the target action exists (e.g., by calling 'ros2_list_actions').",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_name": {
+            "description": "Action name, e.g. '/fibonacci' or '/navigate_to_pose'",
+            "type": "string"
+          },
+          "cancel_all": {
+            "default": false,
+            "description": "If true, send zero-UUID to cancel all matching goals.",
+            "type": "boolean"
+          },
+          "goal_id_hex": {
+            "description": "32-char UUID hex of the goal (no dashes). Omit when cancel_all=True.",
+            "type": "string"
+          },
+          "stamp_nanosec": {
+            "default": 0,
+            "description": "Nanoseconds part for the acceptance time filter.",
+            "type": "integer"
+          },
+          "stamp_sec": {
+            "default": 0,
+            "description": "Cancel goals accepted BEFORE this sec (default 0 → usually all).",
+            "type": "integer"
+          },
+          "wait_timeout_sec": {
+            "default": 3.0,
+            "description": "Timeout (seconds) to wait for the service and response.",
+            "type": "number"
+          }
+        },
+        "required": [
+          "action_name"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_get_message_fields",
+      "description": "Returns the fields of a given ROS2 message type.",
+      "input_schema": {
+        "properties": {
+          "message_type": {
+            "description": "Full ROS2 message type, e.g., std_msgs/msg/String",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_type"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_get_messages_stored_in_influx_data_base",
+      "description": "Calls the ROS2 ‘/get_messages’ service to retrieve past messages from a topic for data which is stored in InfluxDB.\n            Check if the /get_messages service is available before calling.",
+      "input_schema": {
+        "properties": {
+          "message_type": {
+            "description": "Full ROS2 message type used for decoding",
+            "type": "string"
+          },
+          "number_of_messages": {
+            "default": 0,
+            "description": "Number of messages to fetch.",
+            "type": "integer"
+          },
+          "time_end": {
+            "description": "ISO8601 timestamp string to filter messages before a point in time.",
+            "type": "string"
+          },
+          "time_start": {
+            "description": "ISO8601 timestamp string to filter messages after a point in time.",
+            "type": "string"
+          },
+          "topic_name": {
+            "description": "Name of the topic to retrieve messages from.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_name",
+          "message_type"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_interface_list",
+      "description": "Returns a list of available ROS 2 interfaces.",
+      "input_schema": {
+        "properties": {},
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_list_actions",
+      "description": "List all available ROS 2 actions with their types and request fields.\n            This tool queries the current ROS graph to discover active action servers and\n            returns a structured description for each action.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_send_action_goal",
+      "description": "Send a goal to a ROS 2 action by name and action type using provided goal fields. Before **every** use of this tool, the agent must call 'ros2_list_actions' and 'ros2_interface_list' to ensure the latest available actions and types are known. Optionally wait for the result with a timeout.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_name": {
+            "description": "Action name, e.g. '/fibonacci' or '/navigate_to_pose'",
+            "type": "string"
+          },
+          "action_type": {
+            "description": "Full action type, e.g. 'example_interfaces/action/Fibonacci' or 'pkg/ActionName'",
+            "type": "string"
+          },
+          "goal_fields": {
+            "description": "Dictionary with goal message fields (1st section of .action file)",
+            "type": "object"
+          },
+          "timeout_sec": {
+            "default": 60.0,
+            "description": "Timeout (seconds) for waiting on the result when wait_for_result=true",
+            "type": "number"
+          },
+          "wait_for_result": {
+            "default": false,
+            "description": "If true, wait for GetResult and include final status/result",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "action_name",
+          "action_type",
+          "goal_fields"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_service_call",
+      "description": "Call a ROS 2 service by name and type using provided fields.\n            Will ask the user to confirm if some fields are missing unless 'force_call' is set to True.\n            Before **every** use of this tool, the agent must call 'ros2 service list' and 'ros2 interface list' to ensure the latest interface information is available.",
+      "input_schema": {
+        "properties": {
+          "fields": {
+            "description": "Dictionary of fields to send in the service request.",
+            "type": "object"
+          },
+          "force_call": {
+            "default": false,
+            "description": "Whether to call the service even if some fields are missing",
+            "type": "boolean"
+          },
+          "service_name": {
+            "description": "Name of the service to call",
+            "type": "string"
+          },
+          "service_type": {
+            "description": "Full ROS 2 service type, before pass, check service type using tool ros2_service_list",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service_name",
+          "service_type",
+          "fields"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_service_list",
+      "description": "Returns a list of available ROS 2 services and their request fields.",
+      "input_schema": {
+        "properties": {},
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_stream_next",
+      "description": "Fetch the latest item from a stream session. If after_seq is provided, returns available=false until seq increases. UI/App-only tool.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "after_seq": {
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_stream_next_image",
+      "description": "Fetch the latest image from an image stream session and return it as ImageContent (useful when the client cannot render the Viewer App UI). UI/App-only tool.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "after_seq": {
+            "type": "integer"
+          },
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_stream_start",
+      "description": "Start a keep-latest stream session for a ROS 2 topic (Image/CompressedImage/PointCloud2/Generic). Returns a session_id. UI/App-only tool.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "jpeg_quality": {
+            "default": 80,
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "pointcloud",
+              "message"
+            ],
+            "type": "string"
+          },
+          "max_height": {
+            "default": 540,
+            "type": "integer"
+          },
+          "max_points": {
+            "default": 0,
+            "description": "Max points to return; <=0 means no limit.",
+            "type": "integer"
+          },
+          "max_width": {
+            "default": 960,
+            "type": "integer"
+          },
+          "qos_preset": {
+            "default": "auto",
+            "description": "QoS preset for the stream subscription. Use sensor_data for most camera topics.",
+            "enum": [
+              "auto",
+              "sensor_data",
+              "system_default"
+            ],
+            "type": "string"
+          },
+          "target_fps": {
+            "default": 20.0,
+            "description": "Soft cap for processing frames (keep-latest, drops when over).",
+            "type": "number"
+          },
+          "topic_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_name",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_stream_stop",
+      "description": "Stop and clean up a stream session previously started with ros2_stream_start. UI/App-only tool.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_topic_list",
+      "description": "Returns a list of available ROS 2 topics and their types.",
+      "input_schema": {
+        "properties": {},
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_topic_publish",
+      "description": "Publish a message to a ROS 2 topic by name and message type using provided field values.\n            Supports single publish (default) or continuous publishing at a specified frequency for a duration.\n            Before **every** use of this tool, the agent must call 'ros2_topic_list' and 'ros2_interface_list'\n            to ensure the latest available topics and message types are known.",
+      "input_schema": {
+        "properties": {
+          "data": {
+            "description": "Dictionary containing the message fields and values",
+            "type": "object"
+          },
+          "duration": {
+            "description": "Optional: Duration in seconds for continuous publishing. Must be used with frequency parameter.",
+            "type": "number"
+          },
+          "frequency": {
+            "description": "Optional: Publish frequency in Hz (messages per second). If provided with duration, publishes repeatedly.",
+            "type": "number"
+          },
+          "message_type": {
+            "description": "Full ROS 2 message type, e.g., 'std_msgs/msg/String'",
+            "type": "string"
+          },
+          "topic_name": {
+            "description": "Name of the topic to publish to",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_name",
+          "message_type",
+          "data"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_topic_subscribe",
+      "description": "Subscribe to a ROS 2 topic by name collecting messages for a given time or count limit.\n            Before **every** use of this tool, the agent must call 'ros2_topic_list'\n            to ensure it has the latest available topics",
+      "input_schema": {
+        "properties": {
+          "duration": {
+            "description": "If provided, collects messages for this many seconds.",
+            "type": "number"
+          },
+          "message_limit": {
+            "description": "If provided, stops after receiving this number of messages.",
+            "type": "integer"
+          },
+          "topic_name": {
+            "description": "Name of the topic to subscribe to",
+            "type": "string"
+          }
+        },
+        "required": [
+          "topic_name"
+        ],
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_viewer_app",
+      "description": "Open an interactive ROS 2 viewer app (Image + PointCloud2 + Plot) for MCP clients that support Apps/HTML resources.",
+      "input_schema": {
+        "properties": {
+          "auto_start": {
+            "default": true,
+            "type": "boolean"
+          },
+          "plot_fields": {
+            "description": "Optional list of plot field paths to preselect in Plot mode.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "preferred_kind": {
+            "enum": [
+              "image",
+              "pointcloud",
+              "plot",
+              "auto"
+            ],
+            "type": "string"
+          },
+          "topic_name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "mutating": "unknown"
+    },
+    {
+      "name": "ros2_viewer_config",
+      "description": "Return the last ROS 2 Viewer App configuration (if any). UI/App-only tool.",
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "mutating": "unknown"
+    }
+  ]
+}
