@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - main
-      - 'agent/tori/wvrevive-w6b-redproof'
     tags:
       - '*'
   workflow_dispatch:
