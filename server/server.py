@@ -38,8 +38,37 @@ import argparse
 
 
 SERVER_NAME = "ROS2 MCP"
+PACKAGE_NAME = "mcp_server_ros_2"
 
-app = Server(SERVER_NAME)
+
+def _pkg_version(name: str) -> str:
+    from importlib.metadata import version
+
+    return version(name)
+
+
+def _resolve_server_version() -> str:
+    """The ROS2 MCP release reported in MCP ``serverInfo.version``.
+
+    Without an explicit version the MCP SDK reports its own version, which
+    clients log as if it were ours. Prefer installed package metadata; fall
+    back to pyproject.toml for source checkouts that are not installed.
+    """
+    from importlib.metadata import PackageNotFoundError
+
+    try:
+        return _pkg_version(PACKAGE_NAME)
+    except PackageNotFoundError:
+        pass
+    try:
+        pyproject = pathlib.Path(__file__).resolve().parents[1] / "pyproject.toml"
+        with open(pyproject, "rb") as f:
+            return str(toml.load(f)["project"]["version"])
+    except (OSError, KeyError, ValueError):
+        return "unknown"
+
+
+app = Server(SERVER_NAME, version=_resolve_server_version())
 
 READ_ONLY_ENV = "ROS2_MCP_READONLY"
 READ_ONLY_FLAG = "--read-only"

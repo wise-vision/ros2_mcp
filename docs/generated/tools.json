@@ -1,8 +1,9 @@
 {
   "provenance": {
-    "package_version": "0.1.0",
-    "git_describe": "2606-3-g47b4918",
-    "source_sha": "47b4918658f44f77a0e46da223aba5d9cca64ab6"
+    "release": "2610",
+    "package_version": "2610",
+    "git_describe": "2610-2-gc1bfecd",
+    "source_sha": "c1bfecdfc966b920791870ff29c18a4de33556d1"
   },
   "tools": [
     {
