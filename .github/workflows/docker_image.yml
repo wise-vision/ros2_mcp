@@ -141,26 +141,3 @@ jobs:
             ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64
 
           docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}
-
-
-  send_trigger:
-    if: github.event_name == 'push'
-    needs: [merge_manifests]
-    runs-on: wisevision-runner
-    container: ubuntu:22.04
-
-    steps:
-      - name: Install curl
-        run: |
-          apt-get update
-          apt-get install -y curl
-
-      - name: Send Repository Dispatch to wisevision.proj
-        env:
-          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
-        run: |
-          curl -X POST \
-            -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            https://api.github.com/repos/wise-vision/mcp_server_ros_2-private/dispatches \
-            -d '{"event_type": "trigger-build-and-push-image"}'

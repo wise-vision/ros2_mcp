@@ -468,7 +468,7 @@ cli = [
 
 [[package]]
 name = "mcp-server-ros-2"
-version = "0.1.0"
+version = "2610"
 source = { editable = "." }
 dependencies = [
     { name = "h11" },

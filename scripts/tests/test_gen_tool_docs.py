@@ -38,7 +38,7 @@ def _load_gen():
 
 gen = _load_gen()
 
-PROVENANCE = {"package_version": "9.9.9", "git_describe": "t-0-gabc", "source_sha": "a" * 40}
+PROVENANCE = {"release": "9999", "package_version": "9999", "git_describe": "t-0-gabc", "source_sha": "a" * 40}
 
 
 class FakeHandler:
@@ -140,7 +140,8 @@ def test_markdown_frontmatter_table_sections_and_badge(committed):
     assert "| `count` | integer | no | default: `1` |" in pub
     assert "Publish a message \\| to a topic." in md
     assert "array<string>" in md
-    assert PROVENANCE["source_sha"] in md
+    assert PROVENANCE["source_sha"][:7] in md
+    assert f"release `{PROVENANCE['release']}`" in md
 
 
 # --- determinism --------------------------------------------------------------
@@ -209,7 +210,7 @@ def test_check_does_not_write(committed):
 
 
 def test_check_ignores_provenance_unless_strict(committed):
-    newer = dict(PROVENANCE, git_describe="t-5-gdef", source_sha="b" * 40)
+    newer = dict(PROVENANCE, release="9998", git_describe="t-5-gdef", source_sha="b" * 40)
     assert _run(_fake_registry(), committed, "--check", provenance=newer) == 0
     assert _run(_fake_registry(), committed, "--check", "--strict-provenance", provenance=newer) == 1
     assert _run(_fake_registry(), committed, "--check", "--strict-provenance") == 0
@@ -221,9 +222,110 @@ def test_check_missing_committed_files_exits_1(tmp_path):
 
 def test_compute_provenance_reads_pyproject():
     prov = gen.compute_provenance(REPO_ROOT)
-    assert list(prov.keys()) == ["package_version", "git_describe", "source_sha"]
+    assert list(prov.keys()) == ["release", "package_version", "git_describe", "source_sha"]
     assert prov["package_version"] != "unknown"
     assert len(prov["source_sha"]) == 40 or prov["source_sha"] == "unknown"
+
+
+# --- provenance against a real throwaway git history ---------------------------
+
+def _git(repo, *args):
+    import subprocess
+
+    return subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+         "-c", "tag.gpgsign=false", *args],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+
+
+def _commit(repo, path, text, msg):
+    p = repo / path
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(text, encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", msg)
+    return _git(repo, "rev-parse", "HEAD")
+
+
+def _repo(tmp_path, version):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _commit(repo, "pyproject.toml", f'[project]\nname = "x"\nversion = "{version}"\n', "init")
+    return repo
+
+
+def _history(tmp_path, version):
+    """2606 on a server commit, one more server commit, then a docs-only commit tagged 2610.
+
+    Mirrors the real history where the page said ``2606-3-g47b4918`` at tag 2610.
+    """
+    repo = _repo(tmp_path, version)
+    _commit(repo, "server/a.py", "a = 1\n", "server a")
+    _git(repo, "tag", "2606")
+    src = _commit(repo, "server/a.py", "a = 2\n", "server b")
+    _commit(repo, "docs/x.md", "docs\n", "docs only")
+    _git(repo, "tag", "not-a-release")
+    _git(repo, "tag", "2610")
+    return repo, src
+
+
+def test_provenance_head_at_release_tag_names_the_tag(tmp_path):
+    repo, src = _history(tmp_path, "0.1.0")
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610"
+    assert prov["source_sha"] == src
+    assert prov["git_describe"].startswith("2606-1-g")  # json keeps the exact source describe
+
+
+def test_provenance_tag_wins_over_stale_pyproject_version(tmp_path):
+    # A release tag on a commit whose pyproject was not bumped must surface as a
+    # strict-provenance diff, so the tag (not pyproject) is what gets stamped.
+    repo, _ = _history(tmp_path, "2606")
+    assert gen.compute_provenance(repo)["release"] == "2610"
+
+
+def test_provenance_between_releases_uses_package_release_version(tmp_path):
+    repo, _ = _history(tmp_path, "2610")
+    newer = _commit(repo, "server/a.py", "a = 3\n", "server c")
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610"
+    assert prov["package_version"] == "2610"
+    assert prov["source_sha"] == newer
+
+
+def test_provenance_release_prep_before_tag_is_stable_across_tagging(tmp_path):
+    # Release prep bumps pyproject to the upcoming tag; the stamp must not change
+    # when the tag is then pushed, or the strict tag gate could never pass.
+    repo, _ = _history(tmp_path, "2610")
+    _commit(repo, "pyproject.toml", '[project]\nname = "x"\nversion = "2611"\n', "release prep")
+    before = gen.compute_provenance(repo)
+    _git(repo, "tag", "2611")
+    assert before["release"] == "2611"
+    assert gen.compute_provenance(repo) == before
+
+
+def test_provenance_non_release_version_falls_back_to_nearest_release_tag(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    assert gen.compute_provenance(repo)["release"] == "2610"
+
+
+def test_provenance_without_any_release(tmp_path):
+    repo = _repo(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 1\n", "server a")
+    _git(repo, "tag", "v-something")
+    assert gen.compute_provenance(repo)["release"] == "unreleased"
+
+
+def test_markdown_provenance_line_names_release_not_package_version(tmp_path):
+    prov = {"release": "2610", "package_version": "2610", "git_describe": "2610", "source_sha": "c" * 40}
+    assert _run(_fake_registry(), tmp_path, provenance=prov) == 0
+    md = (tmp_path / "tools.md").read_text(encoding="utf-8")
+    line = next(l for l in md.split("\n") if l.startswith("Generated from ROS2 MCP"))
+    assert line == "Generated from ROS2 MCP release `2610` (source commit `ccccccc`)."
+    assert "package version" not in md
 
 
 # --- real registry (needs ROS 2) ----------------------------------------------

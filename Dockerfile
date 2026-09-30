@@ -1,12 +1,15 @@
 ARG ROS_DISTRO=jazzy
-FROM node:20-bookworm-slim AS ui_build
+# The viewer bundle is a single platform-independent index.html, so build it on
+# the BUILD platform. Building it under QEMU for arm64 made esbuild's Go binary
+# die with SIGBUS during `npm install` (docker_image.yml, main run 36641741446).
+FROM --platform=$BUILDPLATFORM node:20-bookworm-slim AS ui_build
 WORKDIR /ui
-COPY server/ui/ros2_viewer_app/package.json /ui/package.json
+COPY server/ui/ros2_viewer_app/package.json server/ui/ros2_viewer_app/package-lock.json /ui/
 COPY server/ui/ros2_viewer_app/build.mjs /ui/build.mjs
 COPY server/ui/ros2_viewer_app/tsconfig.json /ui/tsconfig.json
 COPY server/ui/ros2_viewer_app/index.template.html /ui/index.template.html
 COPY server/ui/ros2_viewer_app/src /ui/src
-RUN npm install
+RUN npm ci --no-audit --no-fund
 RUN npm run build
 
 FROM wisevision/ros_with_wisevision_msgs_and_wisevision_core:${ROS_DISTRO}
