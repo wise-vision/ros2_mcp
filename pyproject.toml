@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp_server_ros_2"
-version = "0.1.0"
+version = "2610"
 description = "ROS2 MCP: open-source MCP server for ROS 2 (Humble, Jazzy)"
 readme = "README.md"
 requires-python = ">=3.10"
