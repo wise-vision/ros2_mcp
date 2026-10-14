@@ -98,6 +98,9 @@ VOLUME ["/mcp/custom_msgs"]
 
 ENV RMW_IMPLEMENTATION=""
 
+# Only used with ROS2_MCP_TRANSPORT=streamable-http (or sse); stdio needs no port.
+EXPOSE 8123
+
 ENTRYPOINT []
 CMD ["bash", "-c", " \
   source /opt/ros/${ROS_DISTRO}/setup.bash && \

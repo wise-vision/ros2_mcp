@@ -10,15 +10,23 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MPL-2.0"
 dependencies = [
-    "mcp[cli]>=1.23.0",
+    "mcp[cli]>=1.23.0,<2",
     "starlette>=0.49.1",
     "h11>=0.16.0",
     "numpy>=1.21,<2.0",
     "PyYAML",
     "python-dateutil",
-    "pillow",
+    "pillow>=12.3.0",
     "lark",
     "tomli>=2.0.1; python_version < '3.11'",
+    # Transitive security floors (Dependabot alerts #6-18, #22-47, #51-66)
+    "cryptography>=50.0.0",
+    "python-multipart>=0.0.31",
+    "idna>=3.15",
+    "python-dotenv>=1.2.2",
+    "pygments>=2.20.0",
+    "anyio>=4.14.2",
+    "pyjwt>=2.15.0",
 ]
 [project.optional-dependencies]
 custom-prompts = ["extension_prompts"]
@@ -27,7 +35,7 @@ extension_prompts = { git = "https://github.com/wise-vision/ros2_mcp_prompts.git
 
 [tool.uv]
 dev-dependencies = [
-    "pytest>=8.0",
+    "pytest>=9.0.3",
 ]
 
 [project.urls]
@@ -37,6 +45,16 @@ Repository = "https://github.com/wise-vision/ros2_mcp"
 
 [project.scripts]
 mcp_ros_2_server = "server.main:main"
+
+[tool.pytest.ini_options]
+# pytest>=9 tightens pytest11 hookimpl signature validation. The ROS 2 Humble
+# base image auto-registers `launch_ros` and `launch_testing` as pytest11
+# entry-point plugins (ros-humble-launch-ros / ros-humble-launch-testing),
+# neither of which this test suite uses. Their hookimpls don't match the
+# newer pluggy/pytest hookspec and raise PluginValidationError /
+# "unknown hook" errors at collection time. Disable both explicitly so the
+# suite collects cleanly regardless of what's installed system-side.
+addopts = "-p no:launch_ros -p no:launch_testing"
 
 [tool.hatch.build.targets.wheel]
 packages = ["server"]
