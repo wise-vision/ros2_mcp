@@ -1,18 +1,18 @@
 {
-  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.wise-vision/ros2_mcp",
   "title": "ROS2 MCP",
-  "description": "ROS2 MCP: list, subscribe, publish and call ROS 2 topics, services and actions via MCP (optional read-only mode)",
+  "description": "MCP server for ROS 2: list, subscribe, publish and call topics, services and actions",
   "websiteUrl": "https://wisevision.tech/docs",
   "repository": {
     "url": "https://github.com/wise-vision/ros2_mcp",
     "source": "github"
   },
-  "version": "1.0.0",
+  "version": "2610",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "docker.io/mcp/ros2:latest",
+      "identifier": "docker.io/wisevision/ros2_mcp:jazzy",
       "transport": {
         "type": "stdio"
       },
