@@ -18,7 +18,8 @@ Avoid editing `uv.lock` manually.
 ## Running locally
 The server requires a sourced ROS 2 environment before start (so `rclpy` works).
 - Stdio (default): `uv run mcp_ros_2_server`
-- SSE: `uv run mcp_ros_2_server --transport sse` (binds `127.0.0.1:8123`)
+- Streamable HTTP (current MCP spec): `uv run mcp_ros_2_server --transport streamable-http` (serves `http://127.0.0.1:8123/mcp`; `--host/--port`, env `ROS2_MCP_TRANSPORT/HOST/PORT`)
+- SSE (deprecated by the MCP spec): `uv run mcp_ros_2_server --transport sse` (binds `127.0.0.1:8123`)
 
 Custom prompts can be toggled via `pyproject.toml` `[tool.mcp_ros_2]`, env vars (`MCP_CUSTOM_PROMPTS`, `MCP_PROMPTS_LOCAL`, `MCP_PROMPTS_PATH`, `MCP_PROMPTS_MODULE`) or CLI flags (`--custom-prompts`, `--prompts-local`, `--prompts-path`, `--prompts-module`) — see `server/server.py`.
 
