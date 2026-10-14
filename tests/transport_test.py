@@ -20,6 +20,7 @@ the tests do not depend on ROS 2 graph state.
 Spec: https://modelcontextprotocol.io/docs/concepts/transports#streamable-http
 """
 
+import functools
 import json
 import socket
 import threading
@@ -51,9 +52,20 @@ INIT = {
 }
 
 
-@pytest.fixture
-def anyio_backend():
-    return "asyncio"
+def async_test(fn):
+    """Run an async test with anyio.run.
+
+    CI sets PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 (ROS's pytest plugins break under
+    pytest 9), which also stops the anyio pytest plugin from loading, so
+    @pytest.mark.anyio tests fail there with 'async def functions are not
+    natively supported'. This wrapper needs no plugin.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        anyio.run(functools.partial(fn, *args, **kwargs))
+
+    return wrapper
 
 
 @pytest.fixture(autouse=True)
@@ -197,7 +209,7 @@ def _client(app, host="127.0.0.1:8123"):
     )
 
 
-@pytest.mark.anyio
+@async_test
 async def test_post_to_mcp_path_is_handled_without_redirect():
     """A Mount answered POST /mcp with 307 -> /mcp/, which clients may not follow."""
     app = _mixin().build_streamable_http_app()
@@ -209,7 +221,7 @@ async def test_post_to_mcp_path_is_handled_without_redirect():
     assert result["protocolVersion"] == "2025-06-18"
 
 
-@pytest.mark.anyio
+@async_test
 async def test_full_session_initialize_then_list_tools():
     app = _mixin().build_streamable_http_app()
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -238,7 +250,7 @@ async def test_full_session_initialize_then_list_tools():
         assert r.status_code == 404
 
 
-@pytest.mark.anyio
+@async_test
 async def test_json_response_mode_returns_plain_json():
     app = _mixin().build_streamable_http_app(json_response=True)
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -247,7 +259,7 @@ async def test_json_response_mode_returns_plain_json():
     assert r.json()["result"]["serverInfo"]["name"] == "transport-test"
 
 
-@pytest.mark.anyio
+@async_test
 async def test_stateless_mode_issues_no_session_id():
     app = _mixin().build_streamable_http_app(stateless=True)
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -261,7 +273,7 @@ async def test_stateless_mode_issues_no_session_id():
     assert [t["name"] for t in _body_json(r)["result"]["tools"]] == ["ping"]
 
 
-@pytest.mark.anyio
+@async_test
 async def test_custom_path_and_unmounted_paths_404():
     app = _mixin().build_streamable_http_app(path="/rpc")
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -270,7 +282,7 @@ async def test_custom_path_and_unmounted_paths_404():
         assert (await client.get("/definitely-not-mounted")).status_code == 404
 
 
-@pytest.mark.anyio
+@async_test
 async def test_get_without_session_is_a_client_error_not_a_crash():
     app = _mixin().build_streamable_http_app()
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -281,7 +293,7 @@ async def test_get_without_session_is_a_client_error_not_a_crash():
 # --- DNS-rebinding protection -----------------------------------------------------
 
 
-@pytest.mark.anyio
+@async_test
 @pytest.mark.parametrize("bind", ["127.0.0.1", "localhost", "::1"])
 async def test_loopback_bind_rejects_foreign_host_header(bind):
     app = _mixin(host=bind).build_streamable_http_app()
@@ -292,7 +304,7 @@ async def test_loopback_bind_rejects_foreign_host_header(bind):
             assert (await good.post("/mcp", json=INIT)).status_code == 200
 
 
-@pytest.mark.anyio
+@async_test
 async def test_loopback_bind_rejects_foreign_origin():
     app = _mixin(host="127.0.0.1").build_streamable_http_app()
     async with app.router.lifespan_context(app), _client(app) as client:
@@ -306,7 +318,7 @@ async def test_loopback_bind_rejects_foreign_origin():
         assert r.status_code == 200
 
 
-@pytest.mark.anyio
+@async_test
 async def test_explicit_allowed_hosts_apply_to_a_wildcard_bind():
     app = _mixin(
         host="0.0.0.0", allowed_hosts=["robot.lan:8123"]
@@ -318,7 +330,7 @@ async def test_explicit_allowed_hosts_apply_to_a_wildcard_bind():
             assert (await bad.post("/mcp", json=INIT)).status_code == 421
 
 
-@pytest.mark.anyio
+@async_test
 async def test_wildcard_bind_without_allow_list_is_unchecked():
     """Documented limit: we cannot guess the right Host for a container/LAN bind."""
     app = _mixin(host="0.0.0.0").build_streamable_http_app()
@@ -358,7 +370,7 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-@pytest.mark.anyio
+@async_test
 async def test_sdk_client_over_a_real_socket():
     """What an actual MCP client does: connect, handshake, list tools, close."""
     port = _free_port()
