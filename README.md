@@ -45,7 +45,7 @@ uvx --python /usr/bin/python3 --from git+https://github.com/wise-vision/ros2_mcp
 
 Remove `-e ROS2_MCP_READONLY=1` (or the `--read-only` flag) only when you want the agent to be able to move things; see [Security](#-security-read-only-mode). Client-specific setup (VS Code Copilot, Claude Desktop, Warp, Codex CLI, custom messages): [installation guide](installation/README.md). Docs: [wisevision.tech/docs](https://wisevision.tech/docs/).
 
-> The `mcp/ros2` entry in Docker's MCP catalog is built by Docker and lags our releases (last updated 2026-02-04 at the time of writing). `wisevision/ros2_mcp` is built and pushed by this repository's CI.
+> `mcp/ros2` in Docker's official MCP catalog (13,750 pulls at the time of writing) is built by Docker and lags our releases: it was last updated on 2026-02-04 and predates read-only mode. `wisevision/ros2_mcp` is built and pushed by this repository's CI and is the one the commands above use.
 
 ## 🧰 Tools
 
@@ -90,7 +90,16 @@ Other open-source ROS MCP servers exist. They make different trade-offs; pick by
 | License | MPL-2.0 | Apache-2.0 | Apache-2.0 |
 | GitHub stars | 90 | 1,493 | 9 |
 
-When to pick another one: you need **ROS 1**, node or parameter tools, or you want the MCP server **off the robot** with only rosbridge exposed there: use `robotmcp/ros-mcp-server`. We do not claim to be better on every axis. What we offer: native `rclpy` access, a tested read-only mode that removes the tools that can act, full action support, and commercial support if you need it. Something here is wrong or out of date? [Open an issue](https://github.com/wise-vision/ros2_mcp/issues) and we will fix it.
+When to pick another one: you need **ROS 1**, node or parameter tools, or you want the MCP server **off the robot** with only rosbridge exposed there: use `robotmcp/ros-mcp-server`. We do not claim to be better on every axis. What we offer: native `rclpy` access (no bridge process between the agent and DDS), a read-only mode that fails closed (a tool is registered in that mode only if it was explicitly reviewed as read-only, and a test fails when a new tool is unclassified), images, maps and point clouds returned as PNGs, the complete action lifecycle (goal, result, feedback, status, cancel), and commercial support if you need it. Something here is wrong or out of date? [Open an issue](https://github.com/wise-vision/ros2_mcp/issues) and we will fix it.
+
+## 🗺️ Roadmap (proposed, not committed)
+
+What users ask for that is **not** in ROS2 MCP today. No dates; open an issue or a Discussion to vote or to pay for one.
+
+- **Parameter tools**: get / set / list node parameters.
+- **TF tools**: transform lookup and frame tree.
+- **Authentication for Streamable HTTP** (bearer token or a documented reverse-proxy recipe). The transport itself is in [#55](https://github.com/wise-vision/ros2_mcp/pull/55); until auth exists, keep it on loopback or a private network.
+- **Node tools** (list nodes, node info), Nav2-specific helpers, a PyPI package, ROS 1 (not planned).
 
 ## 🤖 For AI agents
 
