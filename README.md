@@ -147,15 +147,15 @@ uv run mcp_ros_2_server --transport streamable-http          # http://127.0.0.1:
 claude mcp add --transport http ros2 http://127.0.0.1:8123/mcp   # Claude Code; other clients: use the URL
 ```
 
-Docker (on the robot or any ROS 2 host; `--network host` lets the container see your DDS graph):
+Docker (publish the port on loopback only):
 
 ```bash
-docker run --rm --network host -e ROS2_MCP_TRANSPORT=streamable-http -e ROS2_MCP_READONLY=1 \
+docker run --rm -p 127.0.0.1:8123:8123 \
+  -e ROS2_MCP_TRANSPORT=streamable-http -e ROS2_MCP_HOST=0.0.0.0 -e ROS2_MCP_READONLY=1 \
   wisevision/ros2_mcp:jazzy                                 # http://127.0.0.1:8123/mcp
 ```
 
-Without host networking, bind inside the container and publish the port on loopback only:
-`docker run --rm -p 127.0.0.1:8123:8123 -e ROS2_MCP_TRANSPORT=streamable-http -e ROS2_MCP_HOST=0.0.0.0 wisevision/ros2_mcp:jazzy`
+`ROS2_MCP_HOST=0.0.0.0` is needed inside the container (a loopback bind is unreachable through `-p`); the `127.0.0.1:` in `-p` keeps it off your network. If the first tool call lists no topics, DDS discovery is not crossing the container boundary; on Linux `--network host` (then drop `-p` and `ROS2_MCP_HOST`) is the usual fix, but that depends on your DDS and network setup.
 
 | Option | Env var | Default | |
 |---|---|---|---|
