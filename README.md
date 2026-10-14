@@ -11,7 +11,7 @@
 
 ![Flow graph](docs/assets/flow-graph.gif)
 
-**ROS2 MCP** is an open-source (MPL-2.0) **Model Context Protocol (MCP)** server for **ROS 2** Humble and Jazzy, written in Python. It lets AI tools such as Claude, Cursor and Codex list, subscribe to, publish on and call ROS 2 topics, services and actions over **stdio** (or SSE). It is listed in Docker's official MCP catalog as [`mcp/ros2`](https://hub.docker.com/mcp/server/ros2/overview).
+**ROS2 MCP** is an open-source (MPL-2.0) **Model Context Protocol (MCP)** server for **ROS 2** Humble and Jazzy, written in Python. It lets AI tools such as Claude, Cursor and Codex list, subscribe to, publish on and call ROS 2 topics, services and actions over **stdio** or **Streamable HTTP** (SSE is still supported). It is listed in Docker's official MCP catalog as [`mcp/ros2`](https://hub.docker.com/mcp/server/ros2/overview).
 
 Every tool is free and open source, including multi-topic subscribe/publish, map-to-image and point-cloud bird's-eye view.
 
@@ -137,6 +137,35 @@ Follow the [installation guide](installation/README.md) for step-by-step instruc
 - [🤖 Install in Claude Desktop](installation/README.md#configure-claude-desktop)
 - [💻 Install in Warp](installation/README.md#configure-warp)
 - [🐳 Build Docker Image locally](installation/README.md#build-docker-image-locally)
+
+## 🌐 Streamable HTTP (remote / multi-client)
+
+stdio is the default and needs no network. To serve several clients, or a client on another machine, use **Streamable HTTP**, the transport the current MCP specification defines (the older `sse` transport is deprecated by the spec and kept only for existing clients).
+
+```bash
+uv run mcp_ros_2_server --transport streamable-http          # http://127.0.0.1:8123/mcp
+claude mcp add --transport http ros2 http://127.0.0.1:8123/mcp   # Claude Code; other clients: use the URL
+```
+
+Docker (on the robot or any ROS 2 host; `--network host` lets the container see your DDS graph):
+
+```bash
+docker run --rm --network host -e ROS2_MCP_TRANSPORT=streamable-http -e ROS2_MCP_READONLY=1 \
+  wisevision/ros2_mcp:jazzy                                 # http://127.0.0.1:8123/mcp
+```
+
+Without host networking, bind inside the container and publish the port on loopback only:
+`docker run --rm -p 127.0.0.1:8123:8123 -e ROS2_MCP_TRANSPORT=streamable-http -e ROS2_MCP_HOST=0.0.0.0 wisevision/ros2_mcp:jazzy`
+
+| Option | Env var | Default | |
+|---|---|---|---|
+| `--transport` | `ROS2_MCP_TRANSPORT` | `stdio` | `stdio`, `streamable-http`, `sse` |
+| `--host` | `ROS2_MCP_HOST` | `127.0.0.1` | `0.0.0.0` inside a container |
+| `--port` | `ROS2_MCP_PORT` | `8123` | |
+| `--allowed-host HOST[:PORT]` | `ROS2_MCP_ALLOWED_HOSTS` | localhost only on a loopback bind | accepted `Host` headers (DNS-rebinding protection); repeatable / comma-separated; `*` matches any port |
+| `--stateless`, `--json-response` | | off | no per-client session state; plain JSON instead of an event stream |
+
+> ⚠️ **There is no authentication.** Anyone who can reach the port can use every tool, including publishing to topics. Keep it on loopback or a private network, put an authenticating reverse proxy in front of anything wider, and consider [read-only mode](#-security-read-only-mode). The server prints a warning when it binds to a non-loopback address.
 
 ## 🧭 DDS discovery warm-up (Docker)
 
