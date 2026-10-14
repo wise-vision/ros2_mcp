@@ -12,16 +12,28 @@ from mcp.server.lowlevel.server import Server as BaseServer
 from mcp.server.sse import SseServerTransport
 from mcp.server.stdio import stdio_server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
+from mcp.server.transport_security import TransportSecuritySettings
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.routing import Route, Mount
 from starlette.applications import Starlette
 from starlette.types import Scope, Receive, Send
 import contextlib
-from collections.abc import AsyncIterator
+import ipaddress
+import sys
+from collections.abc import AsyncIterator, Sequence
 
 import uvicorn
 import anyio
+
+
+def _is_loopback(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host.strip("[]")).is_loopback
+    except ValueError:
+        return False
 
 
 class TransportMixin:
@@ -32,11 +44,13 @@ class TransportMixin:
         host: str = "127.0.0.1",
         port: int = 8123,
         log_level: str = "info",
+        allowed_hosts: Sequence[str] | None = None,
     ):
         self._mcp_server = server
         self._host = host
         self._port = port
         self._log_level = log_level
+        self._allowed_hosts = list(allowed_hosts or [])
 
     async def run_stdio_async(self) -> None:
         async with stdio_server() as (read_stream, write_stream):
@@ -90,6 +104,66 @@ class TransportMixin:
         server = uvicorn.Server(config)
         await server.serve()
 
+    def _transport_security(self) -> TransportSecuritySettings | None:
+        """DNS-rebinding protection for the Streamable HTTP endpoint.
+
+        This server can publish to topics and call services, so a web page the
+        operator visits must not be able to reach a loopback-bound instance by
+        rebinding a DNS name to 127.0.0.1. Explicit ``allowed_hosts`` always
+        enable the check; a loopback bind gets a localhost-only allow-list.
+        Any other bind without an allow-list is left unchecked, because the
+        correct Host values (container name, public DNS name) are unknowable here.
+        """
+        if self._allowed_hosts:
+            hosts = list(self._allowed_hosts)
+        elif _is_loopback(self._host):
+            hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"]
+        else:
+            return None
+        origins = [f"http://{h}" for h in hosts] + [f"https://{h}" for h in hosts]
+        return TransportSecuritySettings(
+            enable_dns_rebinding_protection=True,
+            allowed_hosts=hosts,
+            allowed_origins=origins,
+        )
+
+    def build_streamable_http_app(
+        self,
+        *,
+        path: str = "/mcp",
+        json_response: bool = False,
+        stateless: bool = False,
+    ) -> Starlette:
+        """Build the ASGI app for the Streamable HTTP transport.
+
+        One endpoint handles POST (client messages), GET (server->client SSE
+        stream) and DELETE (session end), per the MCP spec. It is registered as
+        a ``Route``, not a ``Mount``: a ``Mount`` answers ``POST /mcp`` with a
+        307 redirect to ``/mcp/``, which many MCP clients do not follow.
+        """
+        session_manager = StreamableHTTPSessionManager(
+            app=self._mcp_server,
+            json_response=json_response,
+            stateless=stateless,
+            security_settings=self._transport_security(),
+        )
+
+        class _StreamableHTTPApp:
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                await session_manager.handle_request(scope, receive, send)
+
+        @contextlib.asynccontextmanager
+        async def lifespan(app: Starlette) -> AsyncIterator[None]:
+            async with session_manager.run():
+                yield
+
+        return Starlette(
+            routes=[Route(path, endpoint=_StreamableHTTPApp())],
+            lifespan=lifespan,
+        )
+
     async def run_streamable_http_async(
         self,
         *,
@@ -97,37 +171,21 @@ class TransportMixin:
         json_response: bool = False,
         stateless: bool = False,
     ) -> None:
-        """Run the Streamable HTTP transport (MCP spec's SSE replacement).
+        """Run the Streamable HTTP transport (the MCP spec's SSE replacement).
 
         See https://modelcontextprotocol.io/docs/concepts/transports#streamable-http.
-        A single ASGI endpoint handles both the initial POST (which may
-        upgrade to an SSE stream for server->client messages) and
-        subsequent session-scoped requests, per the MCP spec.
         """
-        session_manager = StreamableHTTPSessionManager(
-            app=self._mcp_server,
-            json_response=json_response,
-            stateless=stateless,
+        if not _is_loopback(self._host):
+            print(
+                f"WARNING: ROS2 MCP is listening on {self._host}:{self._port} with no "
+                "authentication. Anyone who can reach this port can drive the robot. "
+                "Keep it on a private network or behind an authenticating reverse "
+                "proxy, and consider --read-only.",
+                file=sys.stderr,
+            )
+        app = self.build_streamable_http_app(
+            path=path, json_response=json_response, stateless=stateless
         )
-
-        async def handle_streamable_http(
-            scope: Scope, receive: Receive, send: Send
-        ) -> None:
-            await session_manager.handle_request(scope, receive, send)
-
-        @contextlib.asynccontextmanager
-        async def lifespan(app: Starlette) -> AsyncIterator[None]:
-            async with session_manager.run():
-                yield
-
-        app = Starlette(
-            debug=True,
-            routes=[
-                Mount(path, app=handle_streamable_http),
-            ],
-            lifespan=lifespan,
-        )
-
         config = uvicorn.Config(
             app,
             host=self._host,
@@ -137,12 +195,22 @@ class TransportMixin:
         server = uvicorn.Server(config)
         await server.serve()
 
-    def run(self, transport: str = "stdio") -> None:
+    def run(
+        self,
+        transport: str = "stdio",
+        *,
+        json_response: bool = False,
+        stateless: bool = False,
+    ) -> None:
         if transport == "stdio":
             anyio.run(self.run_stdio_async)
         elif transport == "sse":
             anyio.run(lambda: self.run_sse_async())
         elif transport == "streamable-http":
-            anyio.run(lambda: self.run_streamable_http_async())
+            anyio.run(
+                lambda: self.run_streamable_http_async(
+                    json_response=json_response, stateless=stateless
+                )
+            )
         else:
             raise ValueError(f"Unsupported transport: {transport}")
