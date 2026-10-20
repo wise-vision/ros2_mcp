@@ -5,10 +5,29 @@ All notable changes to ROS2 MCP are recorded here. Releases are tagged `YYMM`.
 ## Unreleased
 
 ### Added
-- **Immutable release images**: pushing a release tag (`YYMM`) publishes `wisevision/ros2_mcp:<distro>-<release>`
-  (multi-arch, plus `-amd64`/`-arm64`) from that tag's source. The workflow refuses to overwrite a release tag that
-  already exists. `workflow_dispatch` with the `release` input backfills an existing release. The floating
-  `:<distro>` tags still follow `main`.
+- **ROS 2 Lyrical Luth** (LTS, Ubuntu 26.04, Python 3.14) is supported: CI tests, Docker images.
+- **ROS 2 Rolling** is tested and published as `:rolling`, best-effort: its CI never blocks a release.
+- **Release-based Docker tags** (scheme in the README, logic in `scripts/plan_images.py`):
+  - `:<distro>` is the latest release, rebuilt weekly for base-image security updates;
+  - `:<distro>-<YYMM>` is immutable (the workflow refuses to overwrite it);
+  - `:<distro>-main` is the unreleased main branch;
+  - `:latest` is the newest LTS.
+  Every tag is multi-arch with `-amd64`/`-arm64` variants. `workflow_dispatch` with `release` backfills a release.
+- **End-to-end smoke test** (`scripts/smoke_e2e.sh`): a real publisher plus the server over stdio, for Fast DDS,
+  Cyclone DDS and Zenoh. Runs on every PR and gates every image push.
+- `.github/distros.json` is the one list of shipped distros. CI matrices read it, and a test keeps the README
+  support grid in sync with it.
+
+### Changed
+- `:<distro>` now follows the latest release instead of `main` (use `:<distro>-main` for unreleased code).
+  `server.json` points at the immutable `:jazzy-<version>` image.
+- Images build from the official `ros:<distro>-ros-base` and compile `wisevision_msgs` themselves (no prebuilt base
+  image), so every distro builds and picks up current base-image updates.
+
+### Fixed
+- Same-host robots: topics were discovered but no messages arrived (Fast DDS shared memory can't cross the
+  container's IPC namespace). Images now set `FASTDDS_BUILTIN_TRANSPORTS=UDPv4`. `RMW_FASTRTPS_USE_SHM` had no effect
+  and is removed.
 
 ## 2610 (2026-09-29)
 

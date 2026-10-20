@@ -1,5 +1,13 @@
 name: Docker images build and push
 
+# Tag scheme and modes: see scripts/plan_images.py (single source of truth) and the README
+# "Docker image tags" section. In short:
+#   :<distro>         latest release, rebuilt weekly on fresh base images   (moves)
+#   :<distro>-<YYMM>  that release                                          (never moves)
+#   :<distro>-main    main branch, merged but not yet released              (every merge)
+#   :latest           newest LTS (.github/distros.json "latest")            (with :<distro>)
+# Rolling (experimental) gets floating tags only. Every tag also has -amd64 / -arm64 variants.
+
 on:
   pull_request:
     branches:
@@ -9,153 +17,167 @@ on:
   push:
     branches:
       - main
-    # A release tag (YYMM, see release.yml) publishes immutable <distro>-<release> images.
+    # A release tag (YYMM, see release.yml) publishes immutable <distro>-<release> images and
+    # moves the floating <distro> tags to it.
     tags:
       - '[0-9][0-9][0-9][0-9]'
   workflow_dispatch:
     inputs:
       release:
         description: >-
-          Existing release tag (e.g. 2610) to build as immutable <distro>-<release> images.
-          Leave empty to rebuild the floating <distro> tags from the selected branch.
+          Existing release tag (e.g. 2610) to publish as <distro>-<release> + <distro>.
+          Leave empty to publish <distro>-main from the selected branch.
         required: false
         default: ''
-
+  # Weekly: rebuild the latest release on fresh base images (security updates) and move only the
+  # floating tags. Immutable tags are never rebuilt.
   schedule:
     - cron: '0 4 * * 0'
 
 jobs:
-  build_image:
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
+  plan:
+    name: Plan images and tags
     runs-on: ubuntu-latest
-    # Rolling can break in place; its image is best-effort and never fails the run or cancels
-    # the LTS builds (fail-fast: false).
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      ref: ${{ steps.plan.outputs.ref }}
+      has_work: ${{ steps.plan.outputs.has_work }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout repository (with tags)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Plan
+        id: plan
+        env:
+          # Reaches the planner through env only, never interpolated into a script.
+          INPUT_RELEASE: ${{ inputs.release }}
+        run: python3 scripts/plan_images.py
+
+      - name: Refuse to overwrite immutable release tags
+        if: steps.plan.outputs.immutable != ''
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          IMMUTABLE: ${{ steps.plan.outputs.immutable }}
+        run: |
+          for tag in $IMMUTABLE; do
+            if docker buildx imagetools inspect "$REPO:$tag" >/dev/null 2>&1; then
+              echo "::error::$REPO:$tag already exists; release tags are immutable"; exit 1
+            fi
+          done
+
+  # Pull requests: build every distro and run the end-to-end smoke test. Nothing is pushed.
+  build_image:
+    name: Build + smoke (${{ matrix.distro }})
+    needs: plan
+    if: needs.plan.outputs.mode == 'test'
+    runs-on: ubuntu-latest
+    # Rolling can break in place: best-effort, never fails the run or cancels the LTS builds.
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy, lyrical]
-        experimental: [false]
-        include:
-          - ros_distro: rolling
-            experimental: true
-
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Docker build (${{ matrix.ros_distro }})
-        run: |
-          docker build -t ros2_mcp --build-arg ROS_DISTRO=${{ matrix.ros_distro }} .
+      - name: Docker build (${{ matrix.distro }})
+        run: docker build -t ros2_mcp --build-arg ROS_DISTRO=${{ matrix.distro }} .
 
-      - name: ROS 2 type support smoke test (${{ matrix.ros_distro }})
-        run: |
-          docker run --rm --entrypoint bash ros2_mcp -lc '
-            source /opt/ros/${{ matrix.ros_distro }}/setup.bash
-            source /root/wisevision_ws/install/setup.bash
-            /app/.venv/bin/python3 -c "from builtin_interfaces.msg import Time; from rclpy.serialization import serialize_message; Time.__import_type_support__(); serialize_message(Time(sec=1, nanosec=2)); print(\"ROS 2 type support smoke test passed\")"
-          '
+      - name: ROS 2 type support smoke test (${{ matrix.distro }})
+        run: scripts/smoke_e2e.sh --type-support-only ros2_mcp
 
-      - name: End-to-end smoke, every shipped RMW (${{ matrix.ros_distro }})
+      - name: End-to-end smoke, every shipped RMW (${{ matrix.distro }})
         run: scripts/smoke_e2e.sh ros2_mcp
 
-  build_and_push_arm64:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Build & Push (ARM64)
-    env:
-      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
-      # never interpolated into a script, so a dispatch input can't inject shell.
-      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
-    runs-on: wisevision-runner
-    # Rolling can break in place; its image is best-effort and never fails the run or cancels
-    # the LTS builds (fail-fast: false).
+  build_and_push_amd64:
+    name: Build + smoke + push AMD64 (${{ matrix.distro }})
+    needs: plan
+    if: needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy, lyrical]
-        experimental: [false]
-        include:
-          - ros_distro: rolling
-            experimental: true
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout the ref being published
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (${{ matrix.distro }})
+        run: |
+          docker buildx build --platform linux/amd64 --load -t ros2_mcp \
+            --build-arg ROS_DISTRO=${{ matrix.distro }} .
+
+      # Nothing is published unless the image works against a live ROS 2 graph. Releases older
+      # than the smoke test only get the type-support check (their image predates the script).
+      - name: Smoke test before publishing
+        run: |
+          if [ -x scripts/smoke_e2e.sh ]; then
+            scripts/smoke_e2e.sh --type-support-only ros2_mcp
+            scripts/smoke_e2e.sh ros2_mcp
+          else
+            docker run --rm --entrypoint bash ros2_mcp -lc '
+              source /opt/ros/$ROS_DISTRO/setup.bash && source /root/wisevision_ws/install/setup.bash &&
+              /app/.venv/bin/python3 -c "from builtin_interfaces.msg import Time; from rclpy.serialization import serialize_message; serialize_message(Time(sec=1))"'
+          fi
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Push AMD64 (${{ matrix.tags }})
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          TAGS: ${{ matrix.tags }}
+          DISTRO: ${{ matrix.distro }}
+        run: |
+          args=(); for t in $TAGS; do args+=(--tag "$REPO:$t-amd64"); done
+          docker buildx build --platform linux/amd64 --build-arg ROS_DISTRO="$DISTRO" "${args[@]}" --push .
+
+  build_and_push_arm64:
+    name: Build + push ARM64 (${{ matrix.distro }})
+    needs: plan
+    if: needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
+    runs-on: wisevision-runner
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     container:
       image: ubuntu:22.04
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Checkout the ref being published
+        uses: actions/checkout@v5
         with:
-          ref: ${{ env.RELEASE || github.sha }}
+          ref: ${{ needs.plan.outputs.ref }}
 
       - name: Install Docker CLI
         run: |
           apt-get update
           apt-get install -y docker.io
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Resolve image tag
-        id: tag
-        env:
-          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
-          DISTRO: ${{ matrix.ros_distro }}
+      - name: Build (${{ matrix.distro }})
         run: |
-          if [ -n "$RELEASE" ]; then
-            if ! printf '%s' "$RELEASE" | grep -Eq '^[0-9]{4}$'; then
-              echo "::error::release must be a YYMM tag like 2610, got '$RELEASE'"; exit 1
-            fi
-            TAG="$DISTRO-$RELEASE"
-            # Release tags are immutable: never overwrite one that is already published.
-            if docker buildx imagetools inspect "$REPO:$TAG" >/dev/null 2>&1; then
-              echo "::error::$REPO:$TAG already exists; release tags are immutable"; exit 1
-            fi
-          else
-            TAG="$DISTRO"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          docker buildx build --platform linux/arm64 --load -t ros2_mcp_arm64 \
+            --build-arg ROS_DISTRO=${{ matrix.distro }} .
 
-      - name: Build & push ARM64 image
+      - name: Type-support smoke test before publishing
         run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            --file Dockerfile \
-            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ steps.tag.outputs.tag }}-arm64 \
-            --push \
-            .
-
-  build_and_push_amd64: 
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Build & Push (AMD64)
-    env:
-      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
-      # never interpolated into a script, so a dispatch input can't inject shell.
-      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
-    runs-on: ubuntu-latest
-    # Rolling can break in place; its image is best-effort and never fails the run or cancels
-    # the LTS builds (fail-fast: false).
-    continue-on-error: ${{ matrix.experimental }}
-    strategy:
-      fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy, lyrical]
-        experimental: [false]
-        include:
-          - ros_distro: rolling
-            experimental: true
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ env.RELEASE || github.sha }}
+          docker run --rm --entrypoint bash ros2_mcp_arm64 -lc '
+            source /opt/ros/$ROS_DISTRO/setup.bash && source /root/wisevision_ws/install/setup.bash &&
+            /app/.venv/bin/python3 -c "from builtin_interfaces.msg import Time; from rclpy.serialization import serialize_message; serialize_message(Time(sec=1))"'
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -163,62 +185,26 @@ jobs:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Resolve image tag
-        id: tag
+      - name: Push ARM64 (${{ matrix.tags }})
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
-          DISTRO: ${{ matrix.ros_distro }}
+          TAGS: ${{ matrix.tags }}
+          DISTRO: ${{ matrix.distro }}
         run: |
-          if [ -n "$RELEASE" ]; then
-            if ! printf '%s' "$RELEASE" | grep -Eq '^[0-9]{4}$'; then
-              echo "::error::release must be a YYMM tag like 2610, got '$RELEASE'"; exit 1
-            fi
-            TAG="$DISTRO-$RELEASE"
-            # Release tags are immutable: never overwrite one that is already published.
-            if docker buildx imagetools inspect "$REPO:$TAG" >/dev/null 2>&1; then
-              echo "::error::$REPO:$TAG already exists; release tags are immutable"; exit 1
-            fi
-          else
-            TAG="$DISTRO"
-          fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-
-      - name: Build & push AMD64 image
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --file Dockerfile \
-            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ steps.tag.outputs.tag }}-amd64 \
-            --push \
-            .
+          args=(); for t in $TAGS; do args+=(--tag "$REPO:$t-arm64"); done
+          docker buildx build --platform linux/arm64 --build-arg ROS_DISTRO="$DISTRO" "${args[@]}" --push .
 
   merge_manifests:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Merge Images into Multi-Arch (Docker Hub)
-    env:
-      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
-      # never interpolated into a script, so a dispatch input can't inject shell.
-      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
+    name: Multi-arch tags (${{ matrix.distro }})
+    needs: [plan, build_and_push_arm64, build_and_push_amd64]
+    if: needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
     runs-on: wisevision-runner
-    needs: [build_and_push_arm64, build_and_push_amd64]
-    # Rolling can break in place; its image is best-effort and never fails the run or cancels
-    # the LTS builds (fail-fast: false).
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy, lyrical]
-        experimental: [false]
-        include:
-          - ros_distro: rolling
-            experimental: true
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     container:
       image: ubuntu:22.04
-
     steps:
       - name: Install Docker CLI
         run: |
@@ -234,15 +220,12 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Merge ARM64 and AMD64 into one multi-arch tag (Docker Hub)
+      - name: Merge AMD64 + ARM64 into each multi-arch tag
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
-          DISTRO: ${{ matrix.ros_distro }}
+          TAGS: ${{ matrix.tags }}
         run: |
-          TAG="$DISTRO${RELEASE:+-$RELEASE}"
-          docker buildx imagetools create \
-            --tag "$REPO:$TAG" \
-            "$REPO:$TAG-amd64" \
-            "$REPO:$TAG-arm64"
-
-          docker buildx imagetools inspect "$REPO:$TAG"
+          for t in $TAGS; do
+            docker buildx imagetools create --tag "$REPO:$t" "$REPO:$t-amd64" "$REPO:$t-arm64"
+            docker buildx imagetools inspect "$REPO:$t" | head -n 3
+          done

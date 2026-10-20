@@ -1,0 +1,9 @@
+{
+  "_comment": "Single source of truth for the ROS 2 distributions this project ships. Read by .github/workflows/server_tests.yml, .github/workflows/docker_image.yml (via scripts/plan_images.py) and checked against the README grid by scripts/tests/test_plan_images.py. status: supported (LTS: tested, must pass, immutable release tags) | experimental (Rolling: tested, allowed to fail, floating tags only). default: the distro used in docs, server.json and catalog examples. latest: the distro the :latest tag points at (newest LTS).",
+  "distros": {
+    "humble": {"status": "supported"},
+    "jazzy": {"status": "supported", "default": true},
+    "lyrical": {"status": "supported", "latest": true},
+    "rolling": {"status": "experimental"}
+  }
+}

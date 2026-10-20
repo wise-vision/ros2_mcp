@@ -10,8 +10,26 @@ on:
     - cron: '0 22 * * *'
 
 jobs:
+  # The distro list lives in .github/distros.json (one source for every workflow and the README).
+  distros:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v5
+    - id: m
+      shell: python
+      run: |
+        import json, os
+        distros = json.load(open(".github/distros.json"))["distros"]
+        include = [{"ros_distro": name, "experimental": spec["status"] == "experimental"}
+                   for name, spec in sorted(distros.items())]
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write("matrix=" + json.dumps({"include": include}) + "\n")
+
   test:
     name: test (${{ matrix.ros_distro }})
+    needs: distros
     runs-on: ubuntu-latest
     # Rolling is the development distribution and can break in place: it runs as an early warning
     # for the next release and never blocks a merge. Every LTS distro must pass.
@@ -19,12 +37,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy, lyrical]
-        experimental: [false]
-        include:
-          - ros_distro: rolling
-            experimental: true
+      matrix: ${{ fromJSON(needs.distros.outputs.matrix) }}
 
     container:
       image: ros:${{ matrix.ros_distro }}-ros-base

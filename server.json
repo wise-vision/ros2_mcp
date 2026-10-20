@@ -12,7 +12,7 @@
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "docker.io/wisevision/ros2_mcp:jazzy",
+      "identifier": "docker.io/wisevision/ros2_mcp:jazzy-2610",
       "transport": {
         "type": "stdio"
       },
