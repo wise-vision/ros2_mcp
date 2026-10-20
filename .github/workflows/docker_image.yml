@@ -28,9 +28,17 @@ jobs:
   build_image:
     if: github.event_name == 'pull_request' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
+    # Rolling can break in place; its image is best-effort and never fails the run or cancels
+    # the LTS builds (fail-fast: false).
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy]
+        ros_distro: [humble, jazzy, lyrical]
+        experimental: [false]
+        include:
+          - ros_distro: rolling
+            experimental: true
 
     steps:
       - name: Checkout repository
@@ -48,6 +56,9 @@ jobs:
             /app/.venv/bin/python3 -c "from builtin_interfaces.msg import Time; from rclpy.serialization import serialize_message; Time.__import_type_support__(); serialize_message(Time(sec=1, nanosec=2)); print(\"ROS 2 type support smoke test passed\")"
           '
 
+      - name: End-to-end smoke, every shipped RMW (${{ matrix.ros_distro }})
+        run: scripts/smoke_e2e.sh ros2_mcp
+
   build_and_push_arm64:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     name: Build & Push (ARM64)
@@ -56,9 +67,17 @@ jobs:
       # never interpolated into a script, so a dispatch input can't inject shell.
       RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: wisevision-runner
+    # Rolling can break in place; its image is best-effort and never fails the run or cancels
+    # the LTS builds (fail-fast: false).
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy]
+        ros_distro: [humble, jazzy, lyrical]
+        experimental: [false]
+        include:
+          - ros_distro: rolling
+            experimental: true
     container:
       image: ubuntu:22.04
 
@@ -120,9 +139,17 @@ jobs:
       # never interpolated into a script, so a dispatch input can't inject shell.
       RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: ubuntu-latest
+    # Rolling can break in place; its image is best-effort and never fails the run or cancels
+    # the LTS builds (fail-fast: false).
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy]
+        ros_distro: [humble, jazzy, lyrical]
+        experimental: [false]
+        include:
+          - ros_distro: rolling
+            experimental: true
 
     steps:
       - name: Checkout repository
@@ -178,9 +205,17 @@ jobs:
       RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: wisevision-runner
     needs: [build_and_push_arm64, build_and_push_amd64]
+    # Rolling can break in place; its image is best-effort and never fails the run or cancels
+    # the LTS builds (fail-fast: false).
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
+      fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy]
+        ros_distro: [humble, jazzy, lyrical]
+        experimental: [false]
+        include:
+          - ros_distro: rolling
+            experimental: true
     container:
       image: ubuntu:22.04
 

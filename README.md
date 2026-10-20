@@ -65,11 +65,21 @@ Also included: four built-in [prompts](#-prompts), automatic QoS selection for t
 
 ## 🧭 Supported ROS 2 distributions
 
-| Distro | Status |
-|---|---|
-| **Jazzy Jalisco** (Ubuntu 24.04, Python 3.12) | Supported. Tests run in CI on `ros:jazzy-ros-base`; Docker image `wisevision/ros2_mcp:jazzy`. |
-| **Humble Hawksbill** (Ubuntu 22.04, Python 3.10) | Supported. Tests run in CI on `ros:humble-ros-base`; Docker image `wisevision/ros2_mcp:humble`. |
-| Iron, Kilted, Rolling | Not tested and not shipped. It may work from source; we make no promise. [Open an issue](https://github.com/wise-vision/ros2_mcp/issues) if you need one. |
+| Distro | Ubuntu · Python | ROS EOL | Status | Tested in CI | Docker image (amd64 + arm64) |
+|---|---|---|---|---|---|
+| **Lyrical Luth** | 26.04 · 3.14 | May 2031 | ✅ Supported (LTS) | Unit tests + end-to-end smoke | `wisevision/ros2_mcp:lyrical` |
+| **Jazzy Jalisco** | 24.04 · 3.12 | May 2029 | ✅ Supported (LTS) · default | Unit tests + end-to-end smoke | `wisevision/ros2_mcp:jazzy` |
+| **Humble Hawksbill** | 22.04 · 3.10 | May 2027 | ✅ Supported (LTS) | Unit tests + end-to-end smoke | `wisevision/ros2_mcp:humble` |
+| **Rolling Ridley** | 26.04 · 3.14 | rolling | 🧪 Experimental: tested, never blocks a release | Unit tests + end-to-end smoke (allowed to fail) | `wisevision/ros2_mcp:rolling` |
+| Kilted Kaiju | 24.04 · 3.12 | Dec 2026 | ❌ Not shipped (short-term release) | — | — |
+
+Every LTS distribution is supported for its whole ROS lifetime. Short-term releases are skipped: use the LTS before or after them. Rolling tracks the next LTS, so problems show up months before it ships. It can break in place, so its image is best-effort.
+
+**Tested in CI** means:
+- **Unit tests** run on every pull request and nightly, inside the official `ros:<distro>-ros-base` image.
+- **End-to-end smoke** runs on every pull request and weekly. It builds the Docker image and starts a real publisher in a second container. The server then runs over stdio in read-only mode and must find the topic, receive its messages and register no state-changing tool. This runs once for each RMW in the image: `rmw_fastrtps_cpp` (default), `rmw_cyclonedds_cpp` and `rmw_zenoh_cpp` (with a router). Run it yourself with `scripts/smoke_e2e.sh <image>`.
+
+The server must use the same distribution as your robot: ROS 2 does not support nodes talking across distributions. Message packages for common stacks (Nav2, MAVROS, MoveIt, ros2_control, vision_msgs) are in every image where the distro releases them. On Rolling, `nav2_msgs` is not released yet; the image lists what it skipped in `/etc/ros2_mcp/skipped-packages`.
 
 ROS 1 is not supported (the server uses `rclpy`). Python 3.10 or newer.
 

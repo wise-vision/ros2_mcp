@@ -13,20 +13,28 @@ jobs:
   test:
     name: test (${{ matrix.ros_distro }})
     runs-on: ubuntu-latest
+    # Rolling is the development distribution and can break in place: it runs as an early warning
+    # for the next release and never blocks a merge. Every LTS distro must pass.
+    continue-on-error: ${{ matrix.experimental }}
 
     strategy:
       fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy]
+        ros_distro: [humble, jazzy, lyrical]
+        experimental: [false]
+        include:
+          - ros_distro: rolling
+            experimental: true
 
     container:
       image: ros:${{ matrix.ros_distro }}-ros-base
 
     env:
       PYTHONPATH: .
-      # Use the distro's system Python (3.10 on Humble, 3.12 on Jazzy) so rclpy's C extensions
-      # load; .python-version pins 3.10, which would make uv fetch the wrong interpreter on Jazzy.
+      # Use the distro's system Python (3.10 Humble, 3.12 Jazzy, 3.14 Lyrical/Rolling) so rclpy's
+      # C extensions load; .python-version pins 3.10, which would make uv fetch the wrong interpreter.
       UV_PYTHON: /usr/bin/python3
+      UV_PYTHON_DOWNLOADS: never
       # ROS puts launch_testing pytest plugins on PYTHONPATH; the tests do not use them and
       # on Jazzy they fail plugin validation against the pytest version in uv.lock.
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -39,24 +47,24 @@ jobs:
       run: |
         apt-get update && apt-get install -y \
           python3-pip \
-          python3-colcon-common-extensions \
           ros-${{ matrix.ros_distro }}-example-interfaces \
           ros-${{ matrix.ros_distro }}-mavros-msgs \
-          ros-${{ matrix.ros_distro }}-action-tutorials-interfaces \
           ros-${{ matrix.ros_distro }}-nav-msgs \
           ros-${{ matrix.ros_distro }}-sensor-msgs \
-          curl \
-          ca-certificates \
-          gnupg
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-        # Jazzy (Ubuntu 24.04) marks the system Python as externally managed (PEP 668).
+          ca-certificates
+        # Ubuntu 24.04+ marks the system Python as externally managed (PEP 668).
         pip install uv || pip install uv --break-system-packages
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
 
     - name: Create and sync uv virtual environment
       run: |
-        uv venv .venv
-        uv sync --dev  # installs deps from uv.lock
+        # --system-site-packages: ROS's own Python deps (empy, imported by generated messages on
+        # Lyrical and later) are Debian packages, invisible to an isolated venv.
+        uv venv --system-site-packages .venv
+        uv sync --locked --dev
 
     - name: Build ROS 2 Viewer UI
       run: |
@@ -67,4 +75,4 @@ jobs:
     - name: Run tests
       run: |
         . /opt/ros/${{ matrix.ros_distro }}/setup.sh
-        uv run pytest
+        uv run --locked pytest
