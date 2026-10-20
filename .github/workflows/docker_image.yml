@@ -9,7 +9,17 @@ on:
   push:
     branches:
       - main
+    # A release tag (YYMM, see release.yml) publishes immutable <distro>-<release> images.
+    tags:
+      - '[0-9][0-9][0-9][0-9]'
   workflow_dispatch:
+    inputs:
+      release:
+        description: >-
+          Existing release tag (e.g. 2610) to build as immutable <distro>-<release> images.
+          Leave empty to rebuild the floating <distro> tags from the selected branch.
+        required: false
+        default: ''
 
   schedule:
     - cron: '0 4 * * 0'
@@ -41,6 +51,10 @@ jobs:
   build_and_push_arm64:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     name: Build & Push (ARM64)
+    env:
+      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
+      # never interpolated into a script, so a dispatch input can't inject shell.
+      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: wisevision-runner
     strategy:
       matrix:
@@ -51,6 +65,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE || github.sha }}
 
       - name: Install Docker CLI
         run: |
@@ -66,19 +82,43 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Resolve image tag
+        id: tag
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          DISTRO: ${{ matrix.ros_distro }}
+        run: |
+          if [ -n "$RELEASE" ]; then
+            if ! printf '%s' "$RELEASE" | grep -Eq '^[0-9]{4}$'; then
+              echo "::error::release must be a YYMM tag like 2610, got '$RELEASE'"; exit 1
+            fi
+            TAG="$DISTRO-$RELEASE"
+            # Release tags are immutable: never overwrite one that is already published.
+            if docker buildx imagetools inspect "$REPO:$TAG" >/dev/null 2>&1; then
+              echo "::error::$REPO:$TAG already exists; release tags are immutable"; exit 1
+            fi
+          else
+            TAG="$DISTRO"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Build & push ARM64 image
         run: |
           docker buildx build \
             --platform linux/arm64 \
             --file Dockerfile \
             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64 \
+            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ steps.tag.outputs.tag }}-arm64 \
             --push \
             .
 
   build_and_push_amd64: 
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     name: Build & Push (AMD64)
+    env:
+      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
+      # never interpolated into a script, so a dispatch input can't inject shell.
+      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -87,6 +127,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE || github.sha }}
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -97,19 +139,43 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Resolve image tag
+        id: tag
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          DISTRO: ${{ matrix.ros_distro }}
+        run: |
+          if [ -n "$RELEASE" ]; then
+            if ! printf '%s' "$RELEASE" | grep -Eq '^[0-9]{4}$'; then
+              echo "::error::release must be a YYMM tag like 2610, got '$RELEASE'"; exit 1
+            fi
+            TAG="$DISTRO-$RELEASE"
+            # Release tags are immutable: never overwrite one that is already published.
+            if docker buildx imagetools inspect "$REPO:$TAG" >/dev/null 2>&1; then
+              echo "::error::$REPO:$TAG already exists; release tags are immutable"; exit 1
+            fi
+          else
+            TAG="$DISTRO"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
       - name: Build & push AMD64 image
         run: |
           docker buildx build \
             --platform linux/amd64 \
             --file Dockerfile \
             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
+            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ steps.tag.outputs.tag }}-amd64 \
             --push \
             .
 
   merge_manifests:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     name: Merge Images into Multi-Arch (Docker Hub)
+    env:
+      # Set for release builds only: the tag pushed, or the dispatch input. Passed through env,
+      # never interpolated into a script, so a dispatch input can't inject shell.
+      RELEASE: ${{ github.ref_type == 'tag' && github.ref_name || inputs.release }}
     runs-on: wisevision-runner
     needs: [build_and_push_arm64, build_and_push_amd64]
     strategy:
@@ -134,10 +200,14 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Merge ARM64 and AMD64 into one multi-arch tag (Docker Hub)
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          DISTRO: ${{ matrix.ros_distro }}
         run: |
+          TAG="$DISTRO${RELEASE:+-$RELEASE}"
           docker buildx imagetools create \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }} \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64
+            --tag "$REPO:$TAG" \
+            "$REPO:$TAG-amd64" \
+            "$REPO:$TAG-arm64"
 
-          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}
+          docker buildx imagetools inspect "$REPO:$TAG"

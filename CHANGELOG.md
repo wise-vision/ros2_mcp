@@ -2,6 +2,14 @@
 
 All notable changes to ROS2 MCP are recorded here. Releases are tagged `YYMM`.
 
+## Unreleased
+
+### Added
+- **Immutable release images**: pushing a release tag (`YYMM`) publishes `wisevision/ros2_mcp:<distro>-<release>`
+  (multi-arch, plus `-amd64`/`-arm64`) from that tag's source. The workflow refuses to overwrite a release tag that
+  already exists. `workflow_dispatch` with the `release` input backfills an existing release. The floating
+  `:<distro>` tags still follow `main`.
+
 ## 2610 (2026-09-29)
 
 ### Added

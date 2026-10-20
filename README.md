@@ -73,6 +73,8 @@ Also included: four built-in [prompts](#-prompts), automatic QoS selection for t
 
 ROS 1 is not supported (the server uses `rclpy`). Python 3.10 or newer.
 
+**Image tags.** `wisevision/ros2_mcp:<distro>` (e.g. `:jazzy`) follows `main` and moves with every merge. Each release also publishes `wisevision/ros2_mcp:<distro>-<release>` (e.g. `:jazzy-2610`), which is never overwritten: pin that one in anything you want reproducible.
+
 ## 🆚 How it compares
 
 Other open-source ROS MCP servers exist. They make different trade-offs; pick by what you need. Facts below were read from each project's README, `pyproject.toml` and GitHub page on 2026-10-14.
