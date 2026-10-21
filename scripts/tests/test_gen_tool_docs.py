@@ -312,6 +312,28 @@ def test_provenance_non_release_version_falls_back_to_nearest_release_tag(tmp_pa
     assert gen.compute_provenance(repo)["release"] == "2610"
 
 
+def test_provenance_same_month_release_tag(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.1")
+    assert gen.compute_provenance(repo)["release"] == "2610.1"
+    _commit(repo, "server/a.py", "a = 4\n", "server d")  # after it, the nearest release is 2610.1
+    assert gen.compute_provenance(repo)["release"] == "2610.1"
+
+
+def test_provenance_picks_highest_release_at_head_numerically(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _git(repo, "tag", "2610.2")
+    _git(repo, "tag", "2610.10")
+    assert gen.compute_provenance(repo)["release"] == "2610.10"
+
+
+def test_provenance_same_month_release_prep_in_pyproject(tmp_path):
+    repo, _ = _history(tmp_path, "2610.1")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    assert gen.compute_provenance(repo)["release"] == "2610.1"
+
+
 def test_provenance_without_any_release(tmp_path):
     repo = _repo(tmp_path, "0.1.0")
     _commit(repo, "server/a.py", "a = 1\n", "server a")

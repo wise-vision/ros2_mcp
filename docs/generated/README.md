@@ -40,8 +40,8 @@ Other modes:
 
 `tools.json` carries a `provenance` object with these fields:
 
-- `release`: the ROS2 MCP release (`YYMM`) the docs describe. It is the release tag at HEAD
-  when there is one, else the `pyproject.toml` version when that is a `YYMM` release (release
+- `release`: the ROS2 MCP release (`YYMM`, or `YYMM.N` for another release that month) the docs describe. It is the release tag at HEAD
+  when there is one, else the `pyproject.toml` version when that is a release (release
   prep bumps it before tagging, so tagging does not change the stamp), else the nearest release
   tag, else `unreleased`. `tools.md` shows this with the short source commit.
 - `package_version`: the version from `pyproject.toml` (also reported as MCP `serverInfo.version`).

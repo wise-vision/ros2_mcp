@@ -13,6 +13,8 @@ All notable changes to ROS2 MCP are recorded here. Releases are tagged `YYMM`.
   - `:<distro>-main` is the unreleased main branch;
   - `:latest` is the newest LTS.
   Every tag is multi-arch with `-amd64`/`-arm64` variants. `workflow_dispatch` with `release` backfills a release.
+- **Same-month releases**: `YYMM.N` (e.g. `2610.1`) is a release tag too, ordered numerically. The Docker workflow
+  refuses to publish a release whose `server.json` doesn't carry that version.
 - **End-to-end smoke test** (`scripts/smoke_e2e.sh`): a real publisher plus the server over stdio, for Fast DDS,
   Cyclone DDS and Zenoh. Runs on every PR and gates every image push.
 - `.github/distros.json` is the one list of shipped distros. CI matrices read it, and a test keeps the README

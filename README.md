@@ -92,12 +92,12 @@ Pick a tag by what you want to happen when we ship something new:
 | Tag | What it is | When it changes | Use it for |
 |---|---|---|---|
 | `:jazzy` (any distro) | The latest release for that distro | At each release, and weekly with security updates of the base image | **Most people.** Pin your robot's distro and get tested updates automatically |
-| `:jazzy-2610` | Release 2610, exactly | Never. We refuse to overwrite it | Reproducible setups: MCP catalogs, CI, fleets you roll out on your own schedule |
+| `:jazzy-2610`, `:jazzy-2610.1` | That release, exactly | Never. We refuse to overwrite it | Reproducible setups: MCP catalogs, CI, fleets you roll out on your own schedule |
 | `:jazzy-main` | Merged but not yet released | Every merge to `main` | Trying a fix before it is released |
 | `:latest` | The newest LTS (`:lyrical`) | With `:lyrical` | Quick tries when you don't care about the distro. A robot needs its own distro |
 | `:rolling` | The latest release on Rolling | At each release and weekly. Best-effort | Rolling users. There is no frozen Rolling tag, because Rolling itself changes in place |
 
-Every tag is multi-arch (amd64 + arm64). `-amd64` / `-arm64` variants exist for each. Releases are cut whenever something user-visible lands, so `:<distro>` never lags far behind `main`. Every image passes the end-to-end smoke test before it is published. For a bit-for-bit pin, use the digest: `wisevision/ros2_mcp@sha256:…`.
+Every tag is multi-arch (amd64 + arm64). `-amd64` / `-arm64` variants exist for each. Releases are cut whenever something user-visible lands, so `:<distro>` never lags far behind `main`. They are named `YYMM`; a second release in the same month is `YYMM.1`, `YYMM.2`, ... Every image passes the end-to-end smoke test before it is published. For a bit-for-bit pin, use the digest: `wisevision/ros2_mcp@sha256:…`.
 
 ## 🆚 How it compares
 

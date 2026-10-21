@@ -2,9 +2,12 @@ name: Release
 
 # Cut a GitHub Release automatically when a version tag is pushed.
 #
-# Convention (matches historical scheme: YYMM, e.g. 2606 = June 2026):
-#   git tag 2606 <commit>
-#   git push origin 2606
+# Convention: YYMM (2606 = June 2026); another release in the same month is YYMM.N (2610.1).
+# Release prep, in order (the version gates in this workflow, docker_image.yml and docs_gen.yml
+# fail otherwise):
+#   1. set the version in pyproject.toml and server.json (plus server.json's image tag); commit
+#   2. python3 scripts/gen_tool_docs.py   (re-stamps docs/generated for the new release); commit
+#   3. git tag 2610.1 <that commit on main> && git push origin 2610.1
 #
 # Pushing a tag matching the pattern below creates the GitHub Release and
 # auto-generates notes from the commits since the previous tag. Tag creation
@@ -14,6 +17,7 @@ on:
   push:
     tags:
       - '[0-9][0-9][0-9][0-9]'
+      - '[0-9][0-9][0-9][0-9].[0-9]+'
 
 permissions:
   contents: write
@@ -26,6 +30,13 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      # Same gate as the Docker workflow: a release whose pyproject.toml / server.json were not
+      # bumped to the tag fails here, instead of becoming a GitHub Release without images.
+      # Tags older than the script skip it.
+      - name: Check the release commit
+        run: |
+          if [ -f scripts/plan_images.py ]; then python3 scripts/plan_images.py; fi
 
       - name: Create GitHub Release
         env:

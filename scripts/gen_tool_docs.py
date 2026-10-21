@@ -46,8 +46,10 @@ DEFAULT_OUT = REPO_ROOT / "docs" / "generated"
 FILES = ("tools.json", "tools.md")
 SOURCE_PATHS = ("server", "pyproject.toml")
 MUTATING_BADGE = "⚠ mutates robot state"
-RELEASE_GLOB = "[0-9][0-9][0-9][0-9]"
-RELEASE_RE = re.compile(r"^[0-9]{4}$")
+# YYMM, or YYMM.N for another release in the same month. Same rule as scripts/plan_images.py.
+RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].*")
+RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]*)?$")
+RELEASE_MATCH = [arg for glob in RELEASE_GLOBS for arg in ("--match", glob)]  # for git describe
 
 # --------------------------------------------------------------------------
 # Registry + metadata
@@ -112,24 +114,30 @@ def _run_git(root: pathlib.Path, *args: str) -> str:
 
 
 def is_release(ref: str) -> bool:
-    """Release tags follow the ``YYMM`` scheme (see CHANGELOG.md and release.yml)."""
+    """Release tags are ``YYMM`` or ``YYMM.N`` (see release.yml)."""
     return bool(RELEASE_RE.match(ref or ""))
+
+
+def release_key(tag: str) -> tuple[int, int]:
+    """Numeric order of a release tag: 2610 < 2610.1 < 2610.10 < 2611."""
+    yymm, _, n = tag.partition(".")
+    return int(yymm), int(n or 0)
 
 
 def resolve_release(root: pathlib.Path, package_version: str) -> str:
     """The ROS2 MCP release the docs belong to.
 
     1. HEAD carries a release tag: that tag (what a tag build must stamp).
-    2. pyproject's version is a release (``YYMM``): that version. Release prep
+    2. pyproject's version is a release (``YYMM`` / ``YYMM.N``): that version. Release prep
        bumps it before tagging, so the stamp does not change when the tag lands.
     3. Otherwise the nearest release tag in HEAD's history, else ``unreleased``.
     """
     at_head = [t for t in _run_git(root, "tag", "--points-at", "HEAD").split() if is_release(t)]
     if at_head:
-        return sorted(at_head)[-1]
+        return max(at_head, key=release_key)
     if is_release(package_version):
         return package_version
-    nearest = _run_git(root, "describe", "--tags", "--abbrev=0", "--match", RELEASE_GLOB, "HEAD")
+    nearest = _run_git(root, "describe", "--tags", "--abbrev=0", *RELEASE_MATCH, "HEAD")
     return nearest if is_release(nearest) else "unreleased"
 
 
@@ -144,7 +152,7 @@ def _describe_source(root: pathlib.Path, source_sha: str) -> str:
         return "unknown"
     own = [t for t in _run_git(root, "tag", "--points-at", source_sha).split() if t != "unknown"]
     excludes = [arg for t in own for arg in ("--exclude", t)]
-    return _run_git(root, "describe", "--tags", "--always", "--match", RELEASE_GLOB, *excludes, source_sha)
+    return _run_git(root, "describe", "--tags", "--always", *RELEASE_MATCH, *excludes, source_sha)
 
 
 def compute_provenance(root: pathlib.Path = REPO_ROOT) -> dict:

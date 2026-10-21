@@ -3,7 +3,7 @@ name: Docker images build and push
 # Tag scheme and modes: see scripts/plan_images.py (single source of truth) and the README
 # "Docker image tags" section. In short:
 #   :<distro>         latest release, rebuilt weekly on fresh base images   (moves)
-#   :<distro>-<YYMM>  that release                                          (never moves)
+#   :<distro>-<rel>   that release, e.g. jazzy-2610 or jazzy-2610.1         (never moves)
 #   :<distro>-main    main branch, merged but not yet released              (every merge)
 #   :latest           newest LTS (.github/distros.json "latest")            (with :<distro>)
 # Rolling (experimental) gets floating tags only. Every tag also has -amd64 / -arm64 variants.
@@ -17,15 +17,16 @@ on:
   push:
     branches:
       - main
-    # A release tag (YYMM, see release.yml) publishes immutable <distro>-<release> images and
+    # A release tag (YYMM or YYMM.N, see release.yml) publishes immutable <distro>-<release> images and
     # moves the floating <distro> tags to it.
     tags:
       - '[0-9][0-9][0-9][0-9]'
+      - '[0-9][0-9][0-9][0-9].[0-9]+'
   workflow_dispatch:
     inputs:
       release:
         description: >-
-          Existing release tag (e.g. 2610) to publish as <distro>-<release> + <distro>.
+          Existing release tag (e.g. 2610 or 2610.1) to publish as <distro>-<release> + <distro>.
           Leave empty to publish <distro>-main from the selected branch.
         required: false
         default: ''
