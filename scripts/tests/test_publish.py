@@ -68,12 +68,14 @@ def docker(tmp_path):
     log = tmp_path / "docker.log"
     log.write_text("")
 
-    def run(*args, existing=(), error=(), labels=None, release="", tags=(), git_fail=False):
+    def run(*args, existing=(), error=(), labels=None, release="", tags=(), git_fail=False,
+            run_id=""):
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log),
                    STUB_EXISTING=" ".join(existing), STUB_ERROR=" ".join(error),
                    STUB_LABELS=" ".join(f"{k}={v}" for k, v in (labels or {}).items()),
                    RELEASE=release, RELEASE_REMOTE="https://example.invalid/repo",
-                   STUB_TAGS=" ".join(tags), STUB_GIT_FAIL="1" if git_fail else "")
+                   STUB_TAGS=" ".join(tags), STUB_GIT_FAIL="1" if git_fail else "",
+                   RUN_ID=run_id)
         r = subprocess.run(["bash", str(PUBLISH), *args], capture_output=True, text=True, env=env, check=False)
         return r, log.read_text().splitlines()
     return run
@@ -166,6 +168,37 @@ def test_unreadable_tag_list_fails_closed(docker):
                       tags=["2610.1"], git_fail=True)
     assert r.returncode == 1
     assert not any(c.startswith("push ") for c in calls)
+
+
+def test_rerun_keeps_an_immutable_variant_this_run_already_pushed(docker):
+    ref = f"{REPO}:jazzy-2610.1-arm64"
+    r, calls = docker("push", REPO, "img", "arm64", "jazzy-2610.1", "jazzy", release="2610.1",
+                      tags=["2610", "2610.1"], existing=[ref], labels={ref: "42"}, run_id="42")
+    assert r.returncode == 0, r.stderr
+    pushed = [c for c in calls if c.startswith("push ")]
+    assert pushed == [f"push {REPO}:jazzy-arm64"], "the immutable variant must not be re-pushed"
+
+
+def test_push_refuses_an_immutable_variant_from_another_run(docker):
+    ref = f"{REPO}:jazzy-2610.1-arm64"
+    r, calls = docker("push", REPO, "img", "arm64", "jazzy-2610.1", "jazzy", release="2610.1",
+                      tags=["2610.1"], existing=[ref], labels={ref: "41"}, run_id="42")
+    assert r.returncode == 1 and "immutable" in r.stderr
+    assert not any(c.startswith("push ") for c in calls)
+
+
+def test_merge_aligns_a_superseded_floating_tag_this_run_moved(docker):
+    # 2610.1 was tagged while 2610's run was between push and merge: the variants of :jazzy
+    # already carry this run's label, so the multi-arch :jazzy must follow them.
+    existing, labels = _variants("jazzy", "42", "42")
+    e2, l2 = _variants("jazzy-2610", "42", "42")
+    existing += e2 + [f"{REPO}:jazzy", f"{REPO}:jazzy-2610"]
+    labels.update(l2)
+    r, calls = docker("merge", REPO, "42", "false", "jazzy-2610", "jazzy", existing=existing,
+                      labels=labels, release="2610", tags=["2610", "2610.1"])
+    assert r.returncode == 0, r.stderr
+    creates = [c for c in calls if "imagetools create" in c]
+    assert len(creates) == 2 and any(f"--tag {REPO}:jazzy " in c for c in creates)
 
 
 def test_push_rejects_unknown_arch(docker):

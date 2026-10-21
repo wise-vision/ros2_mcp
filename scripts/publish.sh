@@ -16,12 +16,19 @@
 #       Fail if <tag>, <tag>-amd64 or <tag>-arm64 already exists. A registry error fails too:
 #       "could not check" must never read as "free".
 #   publish.sh push <repo> <local-image> <arch> <tag>...
-#       Push the local image, the exact one that was smoke-tested, as <tag>-<arch>.
+#       Push the local image, the exact one that was smoke-tested, as <tag>-<arch>. A release's
+#       immutable variant (<distro>-RELEASE-<arch>) that already exists is never pushed again:
+#       if THIS run (RUN_ID) pushed it on an earlier attempt ("Re-run failed jobs"), it is kept
+#       as is; if another run did, the push fails.
 #   publish.sh merge <repo> <run-id> <experimental> <tag>...
 #       Create each multi-arch <tag> from <tag>-amd64 + <tag>-arm64, but only when both variants
 #       were built by this workflow run (label RUN_LABEL). Otherwise the arch whose build failed
 #       would silently be filled in from an older run. For an experimental distro that tag is
 #       skipped with a warning; for a supported one it is an error.
+#
+# merge also creates a floating tag dropped by that check when both its variants carry this
+# run's label: this run already moved them, so the multi-arch tag must follow (the newer
+# release's run is serialized behind this one and cannot have published yet).
 #
 # push and merge, when RELEASE is set (release and refresh runs), first re-check against the live
 # tag list (git ls-remote RELEASE_REMOTE) that RELEASE is still the newest release. If a newer one
@@ -94,28 +101,49 @@ check_immutable() {
   echo "immutable tags are free: $*"
 }
 
+label_of() {  # the run-id label of a pushed image, '' if absent
+  docker buildx imagetools inspect "$1" --format "{{ index .Image.Config.Labels \"$RUN_LABEL\" }}" 2>/dev/null || true
+}
+
 push() {
-  local repo=$1 image=$2 arch=$3 tag tags
+  local repo=$1 image=$2 arch=$3 tag tags rc got
   shift 3
   case $arch in amd64|arm64) ;; *) die "unknown arch $arch" ;; esac
   tags=$(publishable "$@")
   read -ra tags <<<"$tags"
   for tag in "${tags[@]}"; do
+    if [ -n "${RELEASE:-}" ] && [[ $tag == *-"$RELEASE" ]]; then
+      rc=0
+      exists "$repo:$tag-$arch" || rc=$?
+      case $rc in
+        0) got=$(label_of "$repo:$tag-$arch")
+           if [ -n "${RUN_ID:-}" ] && [ "$got" = "$RUN_ID" ]; then
+             echo "$repo:$tag-$arch was already pushed by this run; keeping it (immutable)."
+             continue
+           fi
+           die "$repo:$tag-$arch already exists (run '${got:-unknown}'); release tags are immutable" ;;
+        1) ;;
+        *) exit 2 ;;
+      esac
+    fi
     docker tag "$image" "$repo:$tag-$arch"
     docker push "$repo:$tag-$arch"
   done
 }
 
 merge() {
-  local repo=$1 run_id=$2 experimental=$3 tag arch got msg out tags
+  local repo=$1 run_id=$2 experimental=$3 tag arch got msg out kept dropped
   shift 3
-  tags=$(publishable "$@")
-  read -ra tags <<<"$tags"
-  for tag in "${tags[@]}"; do
+  kept=" $(publishable "$@") "
+  for tag in "$@"; do
+    dropped=false
+    [[ $kept == *" $tag "* ]] || dropped=true
     for arch in amd64 arm64; do
-      got=$(docker buildx imagetools inspect "$repo:$tag-$arch" \
-              --format "{{ index .Image.Config.Labels \"$RUN_LABEL\" }}" 2>/dev/null || true)
+      got=$(label_of "$repo:$tag-$arch")
       if [ "$got" != "$run_id" ]; then
+        if $dropped; then
+          continue 2  # superseded floating tag this run never moved: leave it alone
+        fi
         msg="$repo:$tag-$arch comes from run '${got:-unknown}', not this run ($run_id): its build failed or was skipped"
         if [ "$experimental" = true ]; then
           echo "::warning::$msg. Leaving $repo:$tag unchanged."

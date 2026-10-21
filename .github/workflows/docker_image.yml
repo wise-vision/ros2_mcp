@@ -213,6 +213,7 @@ jobs:
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
           TAGS: ${{ matrix.tags }}
+          RUN_ID: ${{ github.run_id }}
           RELEASE: ${{ needs.plan.outputs.release }}
           RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
@@ -279,6 +280,7 @@ jobs:
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
           TAGS: ${{ matrix.tags }}
+          RUN_ID: ${{ github.run_id }}
           RELEASE: ${{ needs.plan.outputs.release }}
           RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
