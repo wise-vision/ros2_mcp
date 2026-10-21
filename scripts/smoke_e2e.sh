@@ -13,12 +13,14 @@
 #   scripts/smoke_e2e.sh <image> [rmw ...]          end-to-end, every shipped RMW by default
 #   scripts/smoke_e2e.sh --type-support-only <image> ROS 2 type support loads (no graph needed)
 #
-# End-to-end, for each RMW: a publisher container sends /chatter, and a second container from the
-# same image runs the image's own /app/scripts/smoke_client.py, which drives the real server over
-# stdio (read-only mode) and checks that it discovers the topic and receives messages.
-# rmw_zenoh_cpp also gets a router container. Containers use --network host, like a real install,
-# and a random ROS_DOMAIN_ID so parallel runs on one machine don't see each other. Nothing is
-# bind-mounted, so it also works from inside a container job. Exits non-zero if any check fails.
+# End-to-end, for each RMW: a publisher container publishes a payload on a topic whose name is
+# unique to this run, and a second container from the same image runs the image's own
+# /app/scripts/smoke_client.py, which drives the real server over stdio (read-only mode) and
+# checks that it discovers that topic and receives that payload. A unique topic means another
+# publisher on the same ROS domain (a parallel run, a robot on the network) can never make a run
+# pass. rmw_zenoh_cpp also gets a router container. Containers use --network host, like a real
+# install. Nothing is bind-mounted, so it also works from inside a container job.
+# Exits non-zero if any check fails.
 set -u
 
 # shellcheck disable=SC2016  # expanded inside the container, not here
@@ -40,35 +42,62 @@ shift
 RMWS=("$@")
 [ ${#RMWS[@]} -eq 0 ] && RMWS=(rmw_fastrtps_cpp rmw_cyclonedds_cpp rmw_zenoh_cpp)
 
-RUN_ID="smoke$$"
+RUN_ID="smoke$$x$RANDOM"   # letters, digits: valid in container names and ROS topic names
 failed=()
 
-cleanup() { docker rm -f "$RUN_ID-pub" "$RUN_ID-router" >/dev/null 2>&1 || true; }
+cleanup() { docker rm -f "$RUN_ID-pub" "$RUN_ID-router" "$RUN_ID-client" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
+
+# start <name> <command> <docker args...>: run detached and wait until it is running.
+start() {
+  local name=$1 cmd=$2 _
+  shift 2
+  if ! docker run -d --name "$name" "$@" --entrypoint bash "$IMAGE" -c "$SRC && exec $cmd" >/dev/null; then
+    echo "  cannot start $name"
+    return 1
+  fi
+  for _ in $(seq 20); do
+    [ "$(docker inspect -f '{{.State.Running}}' "$name" 2>/dev/null)" = true ] && return 0
+    sleep 0.5
+  done
+  echo "  $name did not stay up:"
+  docker logs --tail 15 "$name" 2>&1 | sed 's/^/    /'
+  return 1
+}
 
 for rmw in "${RMWS[@]}"; do
   cleanup
-  domain=$(( (RANDOM % 100) + 100 ))
+  # 10..99: ROS 2 domain IDs above 101 can collide with Linux ephemeral ports.
+  domain=$(( (RANDOM % 90) + 10 ))
+  topic="/${RUN_ID}_${rmw}"
+  payload="${RUN_ID}_payload"
   common=(--network host -e "ROS_DOMAIN_ID=$domain" -e "RMW_IMPLEMENTATION=$rmw")
+  echo "== $IMAGE / $rmw (domain $domain, topic $topic)"
 
-  if [ "$rmw" = rmw_zenoh_cpp ]; then
-    docker run -d --name "$RUN_ID-router" "${common[@]}" --entrypoint bash "$IMAGE" \
-      -c "$SRC && exec ros2 run rmw_zenoh_cpp rmw_zenohd" >/dev/null
-    sleep 2
+  if [ "$rmw" = rmw_zenoh_cpp ] && ! start "$RUN_ID-router" "ros2 run rmw_zenoh_cpp rmw_zenohd" "${common[@]}"; then
+    echo "FAIL $rmw"; failed+=("$rmw"); continue
   fi
-  docker run -d --name "$RUN_ID-pub" "${common[@]}" --entrypoint bash "$IMAGE" \
-    -c "$SRC && exec ros2 topic pub -r 5 /chatter std_msgs/msg/String '{data: smoke}'" >/dev/null
+  if ! start "$RUN_ID-pub" "ros2 topic pub -r 5 $topic std_msgs/msg/String '{data: $payload}'" "${common[@]}"; then
+    echo "FAIL $rmw"; failed+=("$rmw"); continue
+  fi
 
-  echo "== $IMAGE / $rmw (domain $domain)"
   log="$(mktemp)"
-  if timeout 240 docker run --rm -i "${common[@]}" --entrypoint bash "$IMAGE" \
-       -c "$SRC && /app/.venv/bin/python /app/scripts/smoke_client.py" >"$log" 2>&1; then
-    grep -v '^\[' "$log" | grep -E '^(server|tools|topic_|SMOKE)' | sed 's/^/  /'
+  # Named, so cleanup() also removes it when `timeout` kills only the docker CLI.
+  timeout 240 docker run --rm -i --name "$RUN_ID-client" "${common[@]}" \
+    -e "SMOKE_TOPIC=$topic" -e "SMOKE_PAYLOAD=$payload" --entrypoint bash "$IMAGE" \
+    -c "$SRC && /app/.venv/bin/python /app/scripts/smoke_client.py" >"$log" 2>&1
+  rc=$?
+  # Pass needs both: exit 0 AND the client's final line (an early, silent exit 0 is not a pass).
+  if [ "$rc" = 0 ] && grep -qx 'SMOKE OK' "$log"; then
+    grep -E '^(server|tools|topic_|SMOKE)' "$log" | sed 's/^/  /'
     echo "PASS $rmw"
   else
-    echo "FAIL $rmw"
+    echo "FAIL $rmw (client exit $rc)"
     tail -n 25 "$log" | sed 's/^/  client: /'
     docker logs --tail 5 "$RUN_ID-pub" 2>&1 | sed 's/^/  pub: /'
+    if [ "$rmw" = rmw_zenoh_cpp ]; then
+      docker logs --tail 15 "$RUN_ID-router" 2>&1 | sed 's/^/  router: /'
+    fi
     failed+=("$rmw")
   fi
   rm -f "$log"

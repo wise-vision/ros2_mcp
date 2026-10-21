@@ -79,7 +79,7 @@ def test_main_never_moves_a_floating_release_tag():
 
 
 def test_release_tag_push():
-    r = run("push", "tag", "2610")
+    r = run("push", "tag", "2610", tags=["2508", "2606", "2610"])
     assert (r["mode"], r["ref"], r["release"]) == ("release", "2610", "2610")
     tags = {d: e["tags"].split() for d, e in by_distro(r).items()}
     assert tags["humble"] == ["humble-2610", "humble"]
@@ -90,12 +90,39 @@ def test_release_tag_push():
 
 
 def test_manual_backfill_of_existing_release():
-    r = run("workflow_dispatch", release="2606")
-    assert (r["mode"], r["ref"]) == ("release", "2606")
+    r = run("workflow_dispatch", release="2610.1")
+    assert (r["mode"], r["ref"], r["newest"]) == ("release", "2610.1", True)
 
 
 def test_manual_run_without_release_is_main():
-    assert run("workflow_dispatch")["mode"] == "main"
+    assert run("workflow_dispatch", "branch", "main")["mode"] == "main"
+
+
+@pytest.mark.parametrize("branch", ["dev", "stabilization/2611", "2610"])
+def test_manual_run_without_release_off_main_is_refused(branch):
+    # It would publish that commit as <distro>-main, a tag that means "the main branch".
+    with pytest.raises(pi.PlanError, match="must run on main"):
+        run("workflow_dispatch", "branch", branch)
+
+
+def test_backfill_of_an_older_release_never_moves_floating_tags():
+    r = run("workflow_dispatch", release="2606")  # 2610 and 2610.1 exist
+    assert r["newest"] is False
+    tags = {d: e["tags"].split() for d, e in by_distro(r).items()}
+    assert tags == {"humble": ["humble-2606"], "jazzy": ["jazzy-2606"], "lyrical": ["lyrical-2606"]}
+    assert "rolling" not in tags, "rolling has only floating tags: nothing to push"
+
+
+def test_pushing_an_older_numbered_tag_later_never_moves_floating_tags():
+    r = run("push", "tag", "2610", tags=["2606", "2610", "2610.1"])
+    assert r["newest"] is False
+    assert all(e["distro"] not in e["tags"].split() for e in r["matrix"]["include"])
+
+
+def test_newest_release_moves_floating_tags():
+    r = run("push", "tag", "2610.1")
+    assert r["newest"] is True
+    assert "jazzy" in by_distro(r)["jazzy"]["tags"].split()
 
 
 def test_same_month_release():
@@ -136,13 +163,42 @@ def test_refresh_refuses_a_latest_release_that_was_never_bumped():
 
 def test_release_workflow_runs_the_same_gate():
     text = (REPO_ROOT / ".github" / "workflows" / "release.yml").read_text()
-    gate, create = text.find("python3 scripts/plan_images.py;"), text.find("gh release create")
+    gate, create = text.find("\n            python3 scripts/plan_images.py\n"), text.find("gh release create")
     assert 0 < gate < create, "release.yml must run the plan gate before creating the release"
+    # and it must not skip itself on a commit that belongs to the release scheme
+    assert 'elif [ -f .github/distros.json ]' in text and "exit 1" in text[gate:create]
+
+
+@pytest.mark.parametrize("event, kw", [("push", {"ref_type": "tag", "ref_name": "2610.1"}),
+                                       ("workflow_dispatch", {"release": "2610.1"}),
+                                       ("schedule", {})])
+def test_a_release_off_main_is_refused(event, kw):
+    with pytest.raises(pi.PlanError, match="not on main"):
+        pi.plan(event, kw.get("ref_type", ""), kw.get("ref_name", ""), kw.get("release", ""), "abc",
+                TAGS, lambda ref: SAMPLE, lambda ref: {"server.json": ref}, on_main=lambda ref: False)
+
+
+def test_main_and_pull_requests_do_not_need_the_main_check():
+    for event, ref_name in (("push", "main"), ("pull_request", "x")):
+        pi.plan(event, "branch", ref_name, "", "abc", TAGS, lambda ref: SAMPLE, lambda ref: {},
+                on_main=lambda ref: pytest.fail("ancestry checked for a non-release"))
+
+
+def test_docs_generator_orders_releases_like_the_planner():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gen_tool_docs", REPO_ROOT / "scripts" / "gen_tool_docs.py")
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    tags = ["2508", "2610", "2610.1", "2610.2", "2610.10", "2611", "2610.rc1", "2610.0", "v2610"]
+    for t in tags:
+        assert bool(gen.is_release(t)) == bool(pi.RELEASE_RE.match(t)), t
+    released = [t for t in tags if pi.RELEASE_RE.match(t)]
+    assert sorted(released, key=gen.release_key) == sorted(released, key=pi.release_key)
 
 
 def test_legacy_release_is_not_held_to_the_server_json_rule():
     # 2606/2610 predate distros.json and shipped server.json version "1.0.0".
-    r = pi.plan("workflow_dispatch", "", "", "2610", "abc", TAGS, lambda ref: None,
+    r = pi.plan("workflow_dispatch", "", "", "2610", "abc", ["2606", "2610"], lambda ref: None,
                 lambda ref: {"server.json": "1.0.0", "pyproject.toml": "0.1.0"})
     assert r["immutable"].split() == ["humble-2610", "jazzy-2610"]
 
@@ -183,10 +239,39 @@ def test_unknown_event_is_rejected():
 # --- distros at the built ref ------------------------------------------------------------------
 
 def test_old_release_without_distros_file_builds_legacy_distros():
-    r = pi.plan("workflow_dispatch", "", "", "2606", "abc", TAGS, lambda ref: None, lambda ref: {})
+    r = pi.plan("workflow_dispatch", "", "", "2606", "abc", ["2606"], lambda ref: None, lambda ref: {})
     assert sorted(by_distro(r)) == ["humble", "jazzy"]
     assert r["immutable"].split() == ["humble-2606", "jazzy-2606"]
     assert "latest" not in " ".join(e["tags"] for e in r["matrix"]["include"])
+
+
+@pytest.mark.parametrize("event, kw", [("push", {"ref_type": "tag", "ref_name": "2610.1"}),
+                                       ("schedule", {})])
+def test_a_new_release_without_distros_file_is_refused_not_treated_as_legacy(event, kw):
+    with pytest.raises(pi.PlanError, match="missing"):
+        pi.plan(event, kw.get("ref_type", ""), kw.get("ref_name", ""), "", "abc", TAGS,
+                lambda ref: None, lambda ref: {"server.json": ref})
+
+
+def test_versions_from_reads_version_and_image_tag():
+    server = json.dumps({"version": "2610.1", "packages": [
+        {"registryType": "oci", "identifier": "docker.io/wisevision/ros2_mcp:jazzy-2610.1"}]})
+    assert pi.versions_from(server, "2610.1") == {
+        "pyproject.toml": "2610.1", "server.json": "2610.1",
+        "server.json image docker.io/wisevision/ros2_mcp:jazzy-2610.1": "2610.1"}
+
+
+def test_release_commit_with_a_stale_image_tag_in_server_json_is_refused():
+    server = json.dumps({"version": "2610.1", "packages": [
+        {"registryType": "oci", "identifier": "docker.io/wisevision/ros2_mcp:jazzy-2610"}]})
+    with pytest.raises(pi.PlanError, match="image"):
+        pi.plan("push", "tag", "2610.1", "", "abc", TAGS, lambda ref: SAMPLE,
+                lambda ref: pi.versions_from(server, "2610.1"))
+
+
+@pytest.mark.parametrize("server", ["not json", "[]", json.dumps({"packages": [{"registryType": "oci"}]})])
+def test_versions_from_never_raises_on_a_broken_server_json(server):
+    assert pi.versions_from(server, "2610.1")["server.json"] is None
 
 
 def test_main_without_distros_file_fails_loudly():
@@ -221,10 +306,22 @@ def test_repo_distros_file_is_valid():
     assert sum(1 for s in DISTROS.values() if s.get("latest")) == 1
 
 
+def test_latest_is_the_newest_supported_distro_in_the_readme_grid():
+    # The grid lists distros newest-first: :latest must point at its first supported row, or it
+    # silently keeps serving an older LTS after a new one is added.
+    readme = (REPO_ROOT / "README.md").read_text()
+    grid = readme.split("## 🧭 Supported ROS 2 distributions", 1)[1].split("\n## ", 1)[0]
+    rows = [m.group(1).lower() for m in re.finditer(r"^\|\s*\**([A-Z][a-z]+) [A-Z][a-z]+\**\s*\|", grid, re.MULTILINE)]
+    supported = [n for n in rows if DISTROS.get(n, {}).get("status") == "supported"]
+    latest = next(n for n, s in DISTROS.items() if s.get("latest"))
+    assert supported and supported[0] == latest, (latest, rows)
+
+
 def test_server_tests_matrix_comes_from_distros_file():
     text = (REPO_ROOT / ".github" / "workflows" / "server_tests.yml").read_text()
     assert ".github/distros.json" in text
     assert "ros_distro: [" not in text, "hard-coded distro list in server_tests.yml"
+    assert "validate_distros(distros)" in text, "server_tests.yml must validate distros like the Docker plan"
 
 
 def test_docker_workflow_matrix_comes_from_plan():
@@ -234,7 +331,8 @@ def test_docker_workflow_matrix_comes_from_plan():
 
 
 def _glob_to_regex(glob):
-    # GitHub filter syntax as used by our tag filters: [..] classes, '+' = one or more, '.' literal.
+    # Our tag filters use only [..] classes and a literal '.', so the translation is exact.
+    assert not set(glob) & set("*+?!"), f"ambiguous GitHub glob {glob!r}"
     return re.compile("^" + glob.replace(".", r"\.") + "$")
 
 
@@ -245,10 +343,10 @@ def test_every_release_tag_triggers_the_workflow(workflow):
     on_tags = text.split("tags:", 1)[1].split("\n\n", 1)[0]
     globs = re.findall(r"^\s*- '([^']+)'", on_tags, re.MULTILINE)
     assert globs, f"no tag filters in {workflow}"
-    for tag in ["2610", "2610.1", "2610.12", "2611"]:
+    for tag in ["2610", "2610.1", "2610.12", "2610.99", "2611"]:
         assert pi.RELEASE_RE.match(tag)
         assert any(_glob_to_regex(g).match(tag) for g in globs), f"{workflow} ignores release {tag}"
-    for tag in ["v2610", "2610-rc1", "latest"]:
+    for tag in ["v2610", "2610-rc1", "latest", "2610.0", "2610.01"]:
         assert not any(_glob_to_regex(g).match(tag) for g in globs), f"{workflow} fires on {tag}"
 
 

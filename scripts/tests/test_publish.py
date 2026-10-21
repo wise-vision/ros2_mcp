@@ -1,0 +1,226 @@
+#
+#  Copyright (C) 2025 wisevision
+#
+#  SPDX-License-Identifier: MPL-2.0
+#
+#  This Source Code Form is subject to the terms of the Mozilla Public
+#  License, v. 2.0. If a copy of the MPL was not distributed with this
+#  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+#
+"""The publish path: scripts/publish.sh (driven through a stub `docker`) and the structure of
+.github/workflows/docker_image.yml that keeps a broken, untested or forged image off the registry.
+Pure Python + bash: no Docker, no network."""
+import os
+import pathlib
+import stat
+import subprocess
+
+import pytest
+import yaml
+
+REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
+PUBLISH = REPO_ROOT / "scripts" / "publish.sh"
+WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+LABEL = "io.github.wise-vision.ros2-mcp.run-id"
+REPO = "example/ros2_mcp"
+
+STUB = r"""#!/usr/bin/env bash
+# Stub docker: imagetools inspect answers from env, everything is logged.
+echo "$*" >> "$STUB_LOG"
+if [ "$1 $2 $3" = "buildx imagetools inspect" ]; then
+  ref=$4
+  for e in $STUB_ERROR; do [ "$e" = "$ref" ] && { echo "dial tcp: i/o timeout" >&2; exit 1; }; done
+  for e in $STUB_EXISTING; do
+    if [ "$e" = "$ref" ]; then
+      if [ "${5:-}" = "--format" ]; then
+        for kv in $STUB_LABELS; do [ "${kv%%=*}" = "$ref" ] && { echo "${kv#*=}"; exit 0; }; done
+        echo ""; exit 0
+      fi
+      echo "Name: $ref"; exit 0
+    fi
+  done
+  echo "ERROR: $ref: not found" >&2; exit 1
+fi
+exit 0
+"""
+
+
+@pytest.fixture
+def docker(tmp_path):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    stub = bin_dir / "docker"
+    stub.write_text(STUB)
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    log = tmp_path / "docker.log"
+    log.write_text("")
+
+    def run(*args, existing=(), error=(), labels=None):
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log),
+                   STUB_EXISTING=" ".join(existing), STUB_ERROR=" ".join(error),
+                   STUB_LABELS=" ".join(f"{k}={v}" for k, v in (labels or {}).items()))
+        r = subprocess.run(["bash", str(PUBLISH), *args], capture_output=True, text=True, env=env, check=False)
+        return r, log.read_text().splitlines()
+    return run
+
+
+# --- check-immutable ---------------------------------------------------------------------------
+
+def test_check_immutable_passes_when_nothing_exists(docker):
+    r, calls = docker("check-immutable", REPO, "jazzy-2610.1", "humble-2610.1")
+    assert r.returncode == 0, r.stderr
+    assert len([c for c in calls if "imagetools inspect" in c]) == 6  # tag, -amd64, -arm64 each
+
+
+@pytest.mark.parametrize("existing", ["jazzy-2610.1", "jazzy-2610.1-amd64", "jazzy-2610.1-arm64"])
+def test_check_immutable_refuses_any_existing_variant(docker, existing):
+    r, _ = docker("check-immutable", REPO, "jazzy-2610.1", existing=[f"{REPO}:{existing}"])
+    assert r.returncode == 1
+    assert "immutable" in r.stderr and "Re-run failed jobs" in r.stderr
+
+
+def test_check_immutable_fails_closed_when_the_registry_cannot_answer(docker):
+    r, _ = docker("check-immutable", REPO, "jazzy-2610.1", error=[f"{REPO}:jazzy-2610.1-amd64"])
+    assert r.returncode == 2
+    assert "cannot check" in r.stderr
+
+
+# --- push --------------------------------------------------------------------------------------
+
+def test_push_pushes_the_tested_local_image_under_each_arch_tag(docker):
+    r, calls = docker("push", REPO, "ros2_mcp", "amd64", "jazzy-2610.1", "jazzy")
+    assert r.returncode == 0, r.stderr
+    assert calls == [
+        f"tag ros2_mcp {REPO}:jazzy-2610.1-amd64", f"push {REPO}:jazzy-2610.1-amd64",
+        f"tag ros2_mcp {REPO}:jazzy-amd64", f"push {REPO}:jazzy-amd64",
+    ]
+    assert not any("build" in c for c in calls), "push must not rebuild"
+
+
+def test_push_rejects_unknown_arch(docker):
+    r, _ = docker("push", REPO, "ros2_mcp", "riscv64", "jazzy")
+    assert r.returncode == 1
+
+
+# --- merge -------------------------------------------------------------------------------------
+
+def _variants(tag, run_amd, run_arm):
+    refs = {f"{REPO}:{tag}-amd64": run_amd, f"{REPO}:{tag}-arm64": run_arm}
+    return list(refs), refs
+
+
+def test_merge_creates_multiarch_tag_from_this_runs_variants(docker):
+    existing, labels = _variants("jazzy", "42", "42")
+    existing.append(f"{REPO}:jazzy")  # what imagetools create produced; merge inspects it after
+    r, calls = docker("merge", REPO, "42", "false", "jazzy", existing=existing, labels=labels)
+    assert r.returncode == 0, r.stderr
+    assert f"buildx imagetools create --tag {REPO}:jazzy {REPO}:jazzy-amd64 {REPO}:jazzy-arm64" in calls
+
+
+def test_merge_refuses_a_stale_variant_for_a_supported_distro(docker):
+    existing, labels = _variants("jazzy", "42", "41")  # arm64 failed this run; last week's remains
+    r, calls = docker("merge", REPO, "42", "false", "jazzy", existing=existing, labels=labels)
+    assert r.returncode == 1
+    assert "not this run" in r.stderr
+    assert not any("imagetools create" in c for c in calls)
+
+
+def test_merge_skips_a_stale_variant_for_an_experimental_distro(docker):
+    existing, labels = _variants("rolling", "41", "42")
+    r, calls = docker("merge", REPO, "42", "true", "rolling", existing=existing, labels=labels)
+    assert r.returncode == 0
+    assert "::warning::" in r.stdout
+    assert not any("imagetools create" in c for c in calls)
+
+
+def test_merge_treats_a_missing_variant_as_stale(docker):
+    r, calls = docker("merge", REPO, "42", "false", "jazzy", existing=[f"{REPO}:jazzy-amd64"],
+                      labels={f"{REPO}:jazzy-amd64": "42"})
+    assert r.returncode == 1
+    assert not any("imagetools create" in c for c in calls)
+
+
+@pytest.mark.parametrize("args", [[], ["bogus"], ["push", REPO], ["merge", REPO, "42"]])
+def test_usage_errors(docker, args):
+    r, _ = docker(*args)
+    assert r.returncode == 1
+
+
+# --- workflow structure ------------------------------------------------------------------------
+
+def _wf(name):
+    return yaml.safe_load((WORKFLOWS / name).read_text())
+
+
+DOCKER = _wf("docker_image.yml")
+PUBLISH_JOBS = ["build_and_push_amd64", "build_and_push_arm64", "merge_manifests"]
+
+
+@pytest.mark.parametrize("job", PUBLISH_JOBS)
+def test_publish_jobs_never_run_for_pull_requests(job):
+    # On a pull request the planner is the PR's own code, so its outputs cannot be the only gate.
+    assert "github.event_name != 'pull_request'" in DOCKER["jobs"][job]["if"]
+
+
+def test_pull_request_build_job_is_pull_request_only():
+    assert "github.event_name == 'pull_request'" in DOCKER["jobs"]["build_image"]["if"]
+
+
+@pytest.mark.parametrize("name", ["docker_image.yml", "server_tests.yml", "release.yml"])
+def test_no_expression_is_interpolated_into_a_script(name):
+    for job_name, job in _wf(name)["jobs"].items():
+        for step in job.get("steps", []):
+            assert "${{" not in step.get("run", ""), f"{name}:{job_name}:{step.get('name')} interpolates"
+
+
+def test_floating_tag_movers_are_serialized():
+    conc = DOCKER["concurrency"]
+    assert "floating-tags" in conc["group"]
+    for trigger in ("'schedule'", "github.ref_type == 'tag'", "inputs.release"):
+        assert trigger in conc["group"]
+    assert conc["cancel-in-progress"] == "${{ github.event_name == 'pull_request' }}"
+
+
+def test_nothing_rebuilds_between_smoke_test_and_push():
+    text = (WORKFLOWS / "docker_image.yml").read_text()
+    assert "--push" not in text, "a --push build is a second, untested build"
+    for job, image in (("build_and_push_amd64", "ros2_mcp"), ("build_and_push_arm64", "ros2_mcp_arm64")):
+        runs = [s.get("run", "") for s in DOCKER["jobs"][job]["steps"]]
+        build = next(r for r in runs if "buildx build" in r)
+        assert "--load" in build and "--pull" in build and f"-t {image} " in build
+        assert LABEL in build and "org.opencontainers.image.revision" in build
+        push = next(r for r in runs if "publish.sh push" in r)
+        assert f'"$REPO" {image} ' in push, f"{job} must push the image it built and tested"
+
+
+def test_arm64_registers_qemu_before_building():
+    steps = DOCKER["jobs"]["build_and_push_arm64"]["steps"]
+    uses = [s.get("uses", "") for s in steps]
+    qemu = next(i for i, u in enumerate(uses) if u.startswith("docker/setup-qemu-action"))
+    build = next(i for i, s in enumerate(steps) if "buildx build" in s.get("run", ""))
+    assert qemu < build
+
+
+def test_immutable_check_runs_in_plan_job_through_publish_script():
+    runs = [s.get("run", "") for s in DOCKER["jobs"]["plan"]["steps"]]
+    assert any("publish.sh check-immutable" in r for r in runs)
+
+
+def test_merge_only_accepts_this_runs_variants():
+    runs = [s.get("run", "") for s in DOCKER["jobs"]["merge_manifests"]["steps"]]
+    assert any('publish.sh merge "$REPO" "$RUN_ID"' in r for r in runs)
+
+
+def test_one_failed_distro_does_not_freeze_the_others():
+    cond = DOCKER["jobs"]["merge_manifests"]["if"]
+    assert "always()" in cond and "!cancelled()" in cond and "needs.plan.result == 'success'" in cond
+
+
+@pytest.mark.parametrize("name", ["docker_image.yml", "release.yml"])
+def test_third_party_actions_are_pinned_to_a_commit(name):
+    import re
+    for job in _wf(name)["jobs"].values():
+        for step in job.get("steps", []):
+            uses = step.get("uses", "")
+            if uses and not uses.startswith("actions/"):
+                assert re.fullmatch(r"[\w.-]+/[\w.-]+@[0-9a-f]{40}", uses), uses

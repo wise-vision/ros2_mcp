@@ -62,7 +62,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.27 /uv /uvx /usr/local/bin/
 # The image records what it skipped in /etc/ros2_mcp/skipped-packages.
 RUN set -eu; \
     REQUIRED="rclpy ros2cli rmw-zenoh-cpp rmw-cyclonedds-cpp common-interfaces action-msgs \
-      builtin-interfaces example-interfaces tf2-msgs unique-identifier-msgs map-msgs"; \
+      builtin-interfaces example-interfaces tf2-msgs unique-identifier-msgs map-msgs \
+      std-msgs sensor-msgs geometry-msgs nav-msgs"; \
     OPTIONAL="nav2-msgs mavros-msgs ackermann-msgs moveit-msgs control-msgs vision-msgs \
       tf2-geometry-msgs image-transport image-transport-plugins camera-info-manager diagnostic-updater"; \
     case "$ROS_DISTRO" in \
@@ -84,12 +85,15 @@ RUN set -eu; \
 COPY --from=msgs_build /root/wisevision_ws/install /root/wisevision_ws/install
 
 WORKDIR /app
-COPY . /app
-COPY --from=ui_build /ui/index.html /app/server/ui/ros2_viewer_app/index.html
-
+# Dependencies first, from the lock file only, so a source-only change reuses this layer.
 # --system-site-packages: ROS's own Python dependencies (e.g. empy, which generated messages
 # import on Lyrical and later) are Debian packages, invisible to an isolated venv.
-RUN uv venv --system-site-packages && uv sync --locked --extra custom-prompts
+COPY pyproject.toml uv.lock README.md /app/
+RUN uv venv --system-site-packages && uv sync --locked --extra custom-prompts --no-install-project
+
+COPY . /app
+COPY --from=ui_build /ui/index.html /app/server/ui/ros2_viewer_app/index.html
+RUN uv sync --locked --extra custom-prompts
 
 RUN mkdir -p /ros2_mcp_prompts /app/custom_msgs
 VOLUME ["/ros2_mcp_prompts"]
@@ -100,12 +104,5 @@ ENV RMW_IMPLEMENTATION=""
 EXPOSE 8123
 
 ENTRYPOINT []
-CMD ["bash", "-c", " \
-  source /opt/ros/${ROS_DISTRO}/setup.bash && \
-  source /root/wisevision_ws/install/setup.bash && \
-  if [ -n \"$RMW_IMPLEMENTATION\" ]; then export RMW_IMPLEMENTATION=$RMW_IMPLEMENTATION; fi && \
-  if [ -f /app/custom_msgs/install/setup.bash ]; then \
-  source /app/custom_msgs/install/setup.bash; \
-  fi && \
-  uv run --locked mcp_ros_2_server \
-  "]
+# The smoke test (scripts/smoke_client.py) starts the server through this same script.
+CMD ["/app/scripts/run_server.sh"]

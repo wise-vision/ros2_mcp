@@ -30,9 +30,11 @@ Every tag is also published per architecture as ``<tag>-amd64`` / ``<tag>-arm64`
 Modes, from the triggering event:
 
 - ``test``     pull_request: build + smoke test, push nothing.
-- ``main``     push to main (or a manual run without ``release``): ``<distro>-main``.
+- ``main``     push to main (or a manual run on ``main`` without ``release``): ``<distro>-main``.
+               A manual run on any other branch is refused: ``-main`` means the main branch.
 - ``release``  push of a release tag, or a manual run with ``release``: immutable
-               ``<distro>-<release>`` + floating ``<distro>`` (+ ``latest``).
+               ``<distro>-<release>``, plus the floating ``<distro>`` (+ ``latest``) only when it
+               is the newest release. Backfilling an older release never moves floating tags.
 
 Release tags are ``YYMM`` (``2610``) or, for another release in the same month, ``YYMM.N``
 (``2610.1``, ``2610.2``, ...). They order numerically: 2610 < 2610.1 < 2610.10 < 2611. A release
@@ -61,8 +63,11 @@ import sys
 
 RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]*)?$")
 DISTROS_FILE = ".github/distros.json"
-# What every release shipped before .github/distros.json existed.
+# What every release shipped before .github/distros.json existed. Only releases up to
+# LAST_LEGACY_RELEASE may lack the file; a newer release without it is refused, never treated as
+# legacy (that would silently drop distros and skip the version gate).
 LEGACY_DISTROS = {"humble": {"status": "supported"}, "jazzy": {"status": "supported", "default": True}}
+LAST_LEGACY_RELEASE = "2610"
 STATUSES = {"supported", "experimental"}
 
 
@@ -104,8 +109,11 @@ def resolve_mode(event: str, ref_type: str, ref_name: str, input_release: str,
     elif event == "schedule":
         released = [t for t in release_tags if RELEASE_RE.match(t)]
         return ("refresh", max(released, key=release_key)) if released else ("refresh", "")
-    elif event in ("push", "workflow_dispatch"):
+    elif event == "push" or (event == "workflow_dispatch" and ref_name == "main"):
         return "main", ""
+    elif event == "workflow_dispatch":
+        raise PlanError(f"a manual run without `release` publishes <distro>-main, so it must run on "
+                        f"main, not {ref_name!r}")
     else:
         raise PlanError(f"unsupported event {event!r}")
     if not RELEASE_RE.match(release):
@@ -115,8 +123,15 @@ def resolve_mode(event: str, ref_type: str, ref_name: str, input_release: str,
     return "release", release
 
 
-def plan_tags(mode: str, release: str, distros: dict) -> list[dict]:
-    """One matrix entry per distro: the tags to push and which of them must not already exist."""
+def is_newest(release: str, release_tags: list[str]) -> bool:
+    """True when no release tag orders after ``release``."""
+    return all(release_key(t) <= release_key(release) for t in release_tags if RELEASE_RE.match(t))
+
+
+def plan_tags(mode: str, release: str, distros: dict, newest: bool = True) -> list[dict]:
+    """One matrix entry per distro: the tags to push and which of them must not already exist.
+    Distros with nothing to push (Rolling in an older-release backfill) are left out, except in
+    ``test`` mode, which builds everything and pushes nothing."""
     if mode == "refresh" and not release:
         return []  # nothing released yet: nothing to refresh
     entries = []
@@ -124,6 +139,8 @@ def plan_tags(mode: str, release: str, distros: dict) -> list[dict]:
         spec = distros[name]
         experimental = spec["status"] == "experimental"
         floating = [name] + (["latest"] if spec.get("latest") else [])
+        if mode == "release" and not newest:
+            floating = []  # backfilling an older release must not move the floating tags back
         if mode == "test":
             tags, immutable = [], []
         elif mode == "main":
@@ -135,6 +152,8 @@ def plan_tags(mode: str, release: str, distros: dict) -> list[dict]:
             tags, immutable = floating, []
         else:
             raise PlanError(f"unknown mode {mode!r}")
+        if mode != "test" and not tags:
+            continue
         entries.append({
             "distro": name,
             "experimental": experimental,
@@ -145,14 +164,17 @@ def plan_tags(mode: str, release: str, distros: dict) -> list[dict]:
 
 
 def plan(event: str, ref_type: str, ref_name: str, input_release: str, sha: str,
-         release_tags: list[str], distros_at, versions_at) -> dict:
+         release_tags: list[str], distros_at, versions_at, on_main=lambda ref: True) -> dict:
     """Full plan. ``distros_at(ref)`` returns the parsed distros mapping at a git ref (or None);
-    ``versions_at(ref)`` returns ``{file: version}`` for every file that must carry the release."""
+    ``versions_at(ref)`` returns ``{file: version}`` for every file that must carry the release;
+    ``on_main(ref)`` says whether ``ref`` is in main's history (releases are cut on main)."""
     mode, release = resolve_mode(event, ref_type, ref_name, input_release, release_tags)
     ref = release or sha
+    if release and not on_main(ref):
+        raise PlanError(f"release {release} is not on main; release tags are cut on main")
     distros = distros_at(ref)
     if distros is None:
-        if mode in ("test", "main"):
+        if mode in ("test", "main") or not release or release_key(release) > release_key(LAST_LEGACY_RELEASE):
             raise PlanError(f"{DISTROS_FILE} is missing at {ref}")
         distros = LEGACY_DISTROS
     elif mode in ("release", "refresh") and release:
@@ -163,11 +185,13 @@ def plan(event: str, ref_type: str, ref_name: str, input_release: str, sha: str,
                             f"bump them (and server.json's image tag) to {release!r} before tagging, "
                             f"or delete the tag")
     validate_distros(distros)
-    matrix = plan_tags(mode, release, distros)
+    newest = mode != "release" or is_newest(release, release_tags)
+    matrix = plan_tags(mode, release, distros, newest)
     return {
         "mode": mode,
         "ref": ref,
         "release": release,
+        "newest": newest,
         "has_work": bool(matrix),
         "immutable": " ".join(t for e in matrix for t in e["immutable"].split()),
         "matrix": {"include": matrix},
@@ -193,20 +217,39 @@ def _show(ref: str, path: str):
         return None
 
 
+def versions_from(server_json: str | None, pyproject_version: str | None) -> dict:
+    """Every version string a release commit must carry, keyed by where it lives. A missing or
+    unparsable value is None (and so never equals a release)."""
+    versions = {"pyproject.toml": pyproject_version, "server.json": None}
+    try:
+        server = json.loads(server_json or "{}")
+        versions["server.json"] = server.get("version")
+        for pkg in server.get("packages", []):
+            if pkg.get("registryType") == "oci":
+                # docker.io/wisevision/ros2_mcp:jazzy-2610.1 -> 2610.1
+                tag = pkg["identifier"].rsplit(":", 1)[-1]
+                versions[f"server.json image {pkg['identifier']}"] = tag.split("-", 1)[1] if "-" in tag else None
+    except (ValueError, TypeError, KeyError, AttributeError):
+        versions["server.json"] = None
+    return versions
+
+
 def _versions_at(ref: str) -> dict:
-    """Versions the release commit must carry. A missing or unparsable file reports None."""
     import tomllib  # Python 3.11+: only the CI plan job calls this; tests import the module on 3.10
 
-    versions = {}
     try:
-        versions["server.json"] = json.loads(_show(ref, "server.json") or "{}").get("version")
-    except ValueError:
-        versions["server.json"] = None
-    try:
-        versions["pyproject.toml"] = tomllib.loads(_show(ref, "pyproject.toml") or "")["project"]["version"]
+        pyproject = tomllib.loads(_show(ref, "pyproject.toml") or "")["project"]["version"]
     except (tomllib.TOMLDecodeError, KeyError):
-        versions["pyproject.toml"] = None
-    return versions
+        pyproject = None
+    return versions_from(_show(ref, "server.json"), pyproject)
+
+
+def _on_main(ref: str) -> bool:
+    """Ancestry check against origin/main (the CI checkouts fetch every branch). A missing
+    origin/main fails closed: it raises, and the plan is refused."""
+    _git("rev-parse", "--verify", "origin/main")
+    return subprocess.run(["git", "merge-base", "--is-ancestor", f"{ref}^{{commit}}", "origin/main"],
+                          check=False).returncode == 0
 
 
 def main() -> int:
@@ -221,15 +264,23 @@ def main() -> int:
             release_tags=_git("tag", "--list").split(),
             distros_at=_distros_at,
             versions_at=_versions_at,
+            on_main=_on_main,
         )
+    except subprocess.CalledProcessError as exc:
+        print(f"::error::git {' '.join(exc.cmd[1:])} failed: {exc.stderr or exc}")
+        return 1
     except PlanError as exc:
         print(f"::error::{exc}")
         return 1
+    except (KeyError, ValueError, TypeError, OSError) as exc:  # malformed distros.json, missing env
+        print(f"::error::cannot plan images: {type(exc).__name__}: {exc}")
+        return 1
+    result["sha"] = _git("rev-parse", f"{result['ref']}^{{commit}}").strip()
     print(json.dumps(result, indent=2))
     out = env.get("GITHUB_OUTPUT")
     if out:
         with open(out, "a", encoding="utf-8") as f:
-            f.writelines(f"{key}={result[key]}\n" for key in ("mode", "ref", "release", "immutable"))
+            f.writelines(f"{key}={result[key]}\n" for key in ("mode", "ref", "sha", "release", "immutable"))
             f.write(f"has_work={'true' if result['has_work'] else 'false'}\n")
             f.write(f"matrix={json.dumps(result['matrix'], separators=(',', ':'))}\n")
     return 0

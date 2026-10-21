@@ -318,7 +318,17 @@ def test_provenance_same_month_release_tag(tmp_path):
     _git(repo, "tag", "2610.1")
     assert gen.compute_provenance(repo)["release"] == "2610.1"
     _commit(repo, "server/a.py", "a = 4\n", "server d")  # after it, the nearest release is 2610.1
-    assert gen.compute_provenance(repo)["release"] == "2610.1"
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610.1"
+    assert prov["git_describe"].startswith("2610.1-1-g")  # describe matches YYMM.N tags too
+
+
+def test_provenance_non_release_dotted_tag_does_not_hide_the_release(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.rc1")  # nearer than 2610, matched by a loose glob, not a release
+    _commit(repo, "server/a.py", "a = 4\n", "server d")
+    assert gen.compute_provenance(repo)["release"] == "2610"
 
 
 def test_provenance_picks_highest_release_at_head_numerically(tmp_path):

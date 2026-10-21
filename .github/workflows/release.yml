@@ -16,8 +16,10 @@ name: Release
 on:
   push:
     tags:
+      # No '+' or '*': their GitHub glob meaning is easy to misread. Two digits allow .1 to .99.
       - '[0-9][0-9][0-9][0-9]'
-      - '[0-9][0-9][0-9][0-9].[0-9]+'
+      - '[0-9][0-9][0-9][0-9].[1-9]'
+      - '[0-9][0-9][0-9][0-9].[1-9][0-9]'
 
 permissions:
   contents: write
@@ -25,6 +27,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -33,10 +36,15 @@ jobs:
 
       # Same gate as the Docker workflow: a release whose pyproject.toml / server.json were not
       # bumped to the tag fails here, instead of becoming a GitHub Release without images.
-      # Tags older than the script skip it.
+      # Only tags older than the release scheme (no .github/distros.json) skip it.
       - name: Check the release commit
         run: |
-          if [ -f scripts/plan_images.py ]; then python3 scripts/plan_images.py; fi
+          if [ -f scripts/plan_images.py ]; then
+            python3 scripts/plan_images.py
+          elif [ -f .github/distros.json ]; then
+            echo "::error::this commit has .github/distros.json but no scripts/plan_images.py: the release gate cannot run"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         env:

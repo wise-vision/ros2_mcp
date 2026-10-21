@@ -47,7 +47,8 @@ FILES = ("tools.json", "tools.md")
 SOURCE_PATHS = ("server", "pyproject.toml")
 MUTATING_BADGE = "⚠ mutates robot state"
 # YYMM, or YYMM.N for another release in the same month. Same rule as scripts/plan_images.py.
-RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].*")
+# git describe globs are fnmatch, not regex: they only narrow the search, RELEASE_RE decides.
+RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].[1-9]", "[0-9][0-9][0-9][0-9].[1-9][0-9]*")
 RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]*)?$")
 RELEASE_MATCH = [arg for glob in RELEASE_GLOBS for arg in ("--match", glob)]  # for git describe
 
@@ -130,15 +131,18 @@ def resolve_release(root: pathlib.Path, package_version: str) -> str:
     1. HEAD carries a release tag: that tag (what a tag build must stamp).
     2. pyproject's version is a release (``YYMM`` / ``YYMM.N``): that version. Release prep
        bumps it before tagging, so the stamp does not change when the tag lands.
-    3. Otherwise the nearest release tag in HEAD's history, else ``unreleased``.
+    3. Otherwise the newest release tag in HEAD's history, else ``unreleased``. Tags are listed
+       and filtered with ``is_release``: a nearer non-release tag (``2610.rc1``) cannot hide a
+       release behind it.
     """
     at_head = [t for t in _run_git(root, "tag", "--points-at", "HEAD").split() if is_release(t)]
     if at_head:
         return max(at_head, key=release_key)
     if is_release(package_version):
         return package_version
-    nearest = _run_git(root, "describe", "--tags", "--abbrev=0", *RELEASE_MATCH, "HEAD")
-    return nearest if is_release(nearest) else "unreleased"
+    merged = _run_git(root, "tag", "--list", "--merged", "HEAD")
+    released = [t for t in merged.split() if is_release(t)] if merged != "unknown" else []
+    return max(released, key=release_key) if released else "unreleased"
 
 
 def _describe_source(root: pathlib.Path, source_sha: str) -> str:

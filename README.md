@@ -97,7 +97,7 @@ Pick a tag by what you want to happen when we ship something new:
 | `:latest` | The newest LTS (`:lyrical`) | With `:lyrical` | Quick tries when you don't care about the distro. A robot needs its own distro |
 | `:rolling` | The latest release on Rolling | At each release and weekly. Best-effort | Rolling users. There is no frozen Rolling tag, because Rolling itself changes in place |
 
-Every tag is multi-arch (amd64 + arm64). `-amd64` / `-arm64` variants exist for each. Releases are cut whenever something user-visible lands, so `:<distro>` never lags far behind `main`. They are named `YYMM`; a second release in the same month is `YYMM.1`, `YYMM.2`, ... Every image passes the end-to-end smoke test before it is published. For a bit-for-bit pin, use the digest: `wisevision/ros2_mcp@sha256:…`.
+Every tag is multi-arch (amd64 + arm64). `-amd64` / `-arm64` variants exist for each, and are immutable too for release tags. Releases are cut whenever something user-visible lands, so `:<distro>` never lags far behind `main`. They are named `YYMM`; a second release in the same month is `YYMM.1`, `YYMM.2`, ... Nothing is published untested: amd64 images pass the end-to-end smoke test (a live ROS 2 graph on every shipped RMW), and arm64 images, built under emulation, pass the ROS 2 type-support check. The pushed image is the exact image that was tested. For a bit-for-bit pin, use the digest: `wisevision/ros2_mcp@sha256:…`.
 
 ## 🆚 How it compares
 
