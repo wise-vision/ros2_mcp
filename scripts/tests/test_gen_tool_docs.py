@@ -312,6 +312,70 @@ def test_provenance_non_release_version_falls_back_to_nearest_release_tag(tmp_pa
     assert gen.compute_provenance(repo)["release"] == "2610"
 
 
+def test_provenance_same_month_release_tag(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.1")
+    assert gen.compute_provenance(repo)["release"] == "2610.1"
+    _commit(repo, "server/a.py", "a = 4\n", "server d")  # after it, the nearest release is 2610.1
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610.1"
+    assert prov["git_describe"].startswith("2610.1-1-g")  # describe matches YYMM.N tags too
+
+
+def test_provenance_non_release_dotted_tag_does_not_hide_the_release(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.rc1")  # nearer than 2610, matched by a loose glob, not a release
+    _commit(repo, "server/a.py", "a = 4\n", "server d")
+    assert gen.compute_provenance(repo)["release"] == "2610"
+
+
+def test_provenance_describe_never_names_a_non_release_tag(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.10-rc1")  # nearer than 2610; a loose describe glob would pick it
+    _commit(repo, "server/a.py", "a = 4\n", "server d")
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610"
+    assert prov["git_describe"].startswith("2610-"), prov["git_describe"]
+
+
+RELEASE_CORPUS = ["2610", "2610.1", "2610.9", "2610.10", "2610.99", "0000", "9999.1",
+                  "2610.0", "2610.01", "2610.100", "2610.rc1", "2610.10-rc1", "2610-1", "v2610",
+                  "261", "26100", "2610.", "2610.1.1", "abcd", "2610.a"]
+
+
+@pytest.mark.parametrize("tag", RELEASE_CORPUS)
+def test_describe_globs_accept_exactly_the_release_tags(tag):
+    import fnmatch
+    by_glob = any(fnmatch.fnmatchcase(tag, g) for g in gen.RELEASE_GLOBS)
+    assert by_glob == bool(gen.RELEASE_RE.match(tag)), tag
+
+
+def test_release_fallback_ignores_tags_head_does_not_contain(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _git(repo, "checkout", "-q", "-b", "side")
+    _commit(repo, "server/a.py", "a = 9\n", "side work")
+    _git(repo, "tag", "2611")  # a release tag main never got
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "server/a.py", "a = 3\n", "after 2610")  # HEAD is not itself tagged
+    assert gen.resolve_release(repo, "0.1.0") == "2610"
+
+
+def test_provenance_picks_highest_release_at_head_numerically(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _git(repo, "tag", "2610.2")
+    _git(repo, "tag", "2610.10")
+    assert gen.compute_provenance(repo)["release"] == "2610.10"
+
+
+def test_provenance_same_month_release_prep_in_pyproject(tmp_path):
+    repo, _ = _history(tmp_path, "2610.1")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    assert gen.compute_provenance(repo)["release"] == "2610.1"
+
+
 def test_provenance_without_any_release(tmp_path):
     repo = _repo(tmp_path, "0.1.0")
     _commit(repo, "server/a.py", "a = 1\n", "server a")

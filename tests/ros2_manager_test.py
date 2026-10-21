@@ -396,9 +396,9 @@ def test_mavros_waypoint_push_int_to_float_no_type_mocks(mock_spin, mock_node_cl
             rclpy.shutdown()
 
 import types
-from action_tutorials_interfaces.action import Fibonacci
+from example_interfaces.action import Fibonacci
 
-ACTION_TYPE = "action_tutorials_interfaces/action/Fibonacci"
+ACTION_TYPE = "example_interfaces/action/Fibonacci"
 ACTION_NAME = "/fibonacci"
 
 
@@ -484,8 +484,8 @@ def test_send_action_goal_no_wait_accepted(mock_import, mock_action_client, mock
             rclpy.shutdown()
 
 
-from action_tutorials_interfaces.action._fibonacci import Fibonacci_GetResult
-from action_tutorials_interfaces import action as fib_action
+from example_interfaces.action._fibonacci import Fibonacci_GetResult
+from example_interfaces import action as fib_action
 @patch.object(_rm, "ServiceNode")
 @patch.object(_rm.rclpy, "spin_until_future_complete")
 @patch.object(_rm, "ActionClient")
@@ -525,7 +525,7 @@ def test_send_action_goal_wait_for_result_succeeded(
 
         resp = mgr.send_action_goal(
             action_name="/fibonacci",
-            action_type="action_tutorials_interfaces/action/Fibonacci",
+            action_type="example_interfaces/action/Fibonacci",
             goal_fields={"order": 5},
             wait_for_result=True,
             timeout_sec=5.0,
@@ -546,12 +546,12 @@ def test_list_actions_returns_actions_with_request_fields(mock_get_fields, mock_
         if not rclpy.ok():
             rclpy.init()
         mock_get_names.return_value = [
-            ("/fibonacci", ["action_tutorials_interfaces/action/Fibonacci"]),
+            ("/fibonacci", ["example_interfaces/action/Fibonacci"]),
             ("/navigate_to_pose", ["nav2_msgs/action/NavigateToPose"]),
         ]
 
         def fake_get_fields(ros_type: str):
-            if ros_type == "action_tutorials_interfaces/action/Fibonacci":
+            if ros_type == "example_interfaces/action/Fibonacci":
                 return {"order": "int32"}
             elif ros_type == "nav2_msgs/action/NavigateToPose":
                 return {"pose": "geometry_msgs/PoseStamped"}

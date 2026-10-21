@@ -2,9 +2,14 @@ name: Release
 
 # Cut a GitHub Release automatically when a version tag is pushed.
 #
-# Convention (matches historical scheme: YYMM, e.g. 2606 = June 2026):
-#   git tag 2606 <commit>
-#   git push origin 2606
+# Convention: YYMM (2606 = June 2026); another release in the same month is YYMM.N (2610.1).
+# Release prep, in order (the version gates in this workflow, docker_image.yml and docs_gen.yml
+# fail otherwise):
+#   1. set the version in pyproject.toml and server.json (plus server.json's image tag), rename
+#      CHANGELOG.md's "## Unreleased" heading to "## <version> (<date>)", run `uv lock` (the lock
+#      records the project version; CI and the image build use --locked); commit
+#   2. python3 scripts/gen_tool_docs.py   (re-stamps docs/generated for the new release); commit
+#   3. git tag 2610.1 <that commit on main> && git push origin 2610.1
 #
 # Pushing a tag matching the pattern below creates the GitHub Release and
 # auto-generates notes from the commits since the previous tag. Tag creation
@@ -13,19 +18,40 @@ name: Release
 on:
   push:
     tags:
+      # No '+' or '*': their GitHub glob meaning is easy to misread. Two digits allow .1 to .99.
       - '[0-9][0-9][0-9][0-9]'
+      - '[0-9][0-9][0-9][0-9].[1-9]'
+      - '[0-9][0-9][0-9][0-9].[1-9][0-9]'
 
 permissions:
   contents: write
 
+# Re-pushing a tag queues behind the running release instead of racing it.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+
+      # Same gate as the Docker workflow: a release whose pyproject.toml / server.json were not
+      # bumped to the tag fails here, instead of becoming a GitHub Release without images.
+      # Only tags older than the release scheme (no .github/distros.json) skip it.
+      - name: Check the release commit
+        run: |
+          if [ -f scripts/plan_images.py ]; then
+            python3 scripts/plan_images.py
+          elif [ -f .github/distros.json ]; then
+            echo "::error::this commit has .github/distros.json but no scripts/plan_images.py: the release gate cannot run"
+            exit 1
+          fi
 
       - name: Create GitHub Release
         env:

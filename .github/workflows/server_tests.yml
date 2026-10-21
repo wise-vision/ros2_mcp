@@ -9,24 +9,58 @@ on:
   schedule:
     - cron: '0 22 * * *'
 
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its superseded run; the nightly run is never cancelled.
+concurrency:
+  group: server-tests-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  # The distro list lives in .github/distros.json (one source for every workflow and the README).
+  distros:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+    - uses: actions/checkout@v5
+    - id: m
+      shell: python
+      run: |
+        import json, os, sys
+        sys.path.insert(0, "scripts")
+        from plan_images import validate_distros  # same rules as the Docker plan
+        distros = json.load(open(".github/distros.json"))["distros"]
+        validate_distros(distros)  # refuses an empty list, bad names, unknown statuses
+        include = [{"ros_distro": name, "experimental": spec["status"] == "experimental"}
+                   for name, spec in sorted(distros.items())]
+        with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+            out.write("matrix=" + json.dumps({"include": include}) + "\n")
+
   test:
     name: test (${{ matrix.ros_distro }})
+    needs: distros
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # Rolling is the development distribution and can break in place: it runs as an early warning
+    # for the next release and never blocks a merge. Every LTS distro must pass.
+    continue-on-error: ${{ matrix.experimental }}
 
     strategy:
       fail-fast: false
-      matrix:
-        ros_distro: [humble, jazzy]
+      matrix: ${{ fromJSON(needs.distros.outputs.matrix) }}
 
     container:
       image: ros:${{ matrix.ros_distro }}-ros-base
 
     env:
       PYTHONPATH: .
-      # Use the distro's system Python (3.10 on Humble, 3.12 on Jazzy) so rclpy's C extensions
-      # load; .python-version pins 3.10, which would make uv fetch the wrong interpreter on Jazzy.
+      # Use the distro's system Python (3.10 Humble, 3.12 Jazzy, 3.14 Lyrical/Rolling) so rclpy's
+      # C extensions load; .python-version pins 3.10, which would make uv fetch the wrong interpreter.
       UV_PYTHON: /usr/bin/python3
+      UV_PYTHON_DOWNLOADS: never
       # ROS puts launch_testing pytest plugins on PYTHONPATH; the tests do not use them and
       # on Jazzy they fail plugin validation against the pytest version in uv.lock.
       PYTEST_DISABLE_PLUGIN_AUTOLOAD: '1'
@@ -39,24 +73,25 @@ jobs:
       run: |
         apt-get update && apt-get install -y \
           python3-pip \
-          python3-colcon-common-extensions \
-          ros-${{ matrix.ros_distro }}-example-interfaces \
-          ros-${{ matrix.ros_distro }}-mavros-msgs \
-          ros-${{ matrix.ros_distro }}-action-tutorials-interfaces \
-          ros-${{ matrix.ros_distro }}-nav-msgs \
-          ros-${{ matrix.ros_distro }}-sensor-msgs \
-          curl \
-          ca-certificates \
-          gnupg
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -y nodejs
-        # Jazzy (Ubuntu 24.04) marks the system Python as externally managed (PEP 668).
-        pip install uv || pip install uv --break-system-packages
+          "ros-$ROS_DISTRO-example-interfaces" \
+          "ros-$ROS_DISTRO-mavros-msgs" \
+          "ros-$ROS_DISTRO-nav-msgs" \
+          "ros-$ROS_DISTRO-sensor-msgs" \
+          ca-certificates
+        # Ubuntu 24.04+ marks the system Python as externally managed (PEP 668).
+        # Same uv as the image (Dockerfile: ghcr.io/astral-sh/uv:0.9.27).
+        pip install "uv==0.9.27" || pip install "uv==0.9.27" --break-system-packages
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 20  # the Dockerfile's ui_build stage (node:20); keep them equal
 
     - name: Create and sync uv virtual environment
       run: |
-        uv venv .venv
-        uv sync --dev  # installs deps from uv.lock
+        # --system-site-packages: ROS's own Python deps (empy, imported by generated messages on
+        # Lyrical and later) are Debian packages, invisible to an isolated venv.
+        uv venv --system-site-packages .venv
+        uv sync --locked --dev
 
     - name: Build ROS 2 Viewer UI
       run: |
@@ -66,5 +101,8 @@ jobs:
 
     - name: Run tests
       run: |
-        . /opt/ros/${{ matrix.ros_distro }}/setup.sh
-        uv run pytest
+        # shellcheck disable=SC1090,SC1091  # provided by the ros:<distro> container
+        . "/opt/ros/$ROS_DISTRO/setup.sh"
+        # --system-site-packages must not let a distro copy (numpy, PyYAML, ...) shadow a locked one.
+        uv run --locked python scripts/check_locked_env.py uv.lock
+        uv run --locked pytest

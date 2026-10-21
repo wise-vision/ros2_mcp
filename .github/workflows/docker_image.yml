@@ -1,5 +1,17 @@
 name: Docker images build and push
 
+# Tag scheme and modes: see scripts/plan_images.py (what to build and tag) and scripts/publish.sh
+# (registry side), plus the README "Docker image tags" section. In short:
+#   :<distro>         latest release, rebuilt weekly on fresh base images   (moves)
+#   :<distro>-<rel>   that release, e.g. jazzy-2610 or jazzy-2610.1         (never moves)
+#   :<distro>-main    main branch, merged but not yet released              (every merge)
+#   :latest           newest LTS (.github/distros.json "latest")            (with :<distro>)
+# Rolling (experimental) gets floating tags only. Every tag also has -amd64 / -arm64 variants.
+#
+# Every image that is pushed is the exact image that passed the smoke test: each job builds once
+# (--load), tests that image, then pushes it. amd64 and arm64 both build natively on GitHub-hosted
+# runners (ubuntu-latest, ubuntu-24.04-arm) and both get the full end-to-end smoke test.
+
 on:
   pull_request:
     branches:
@@ -9,135 +21,311 @@ on:
   push:
     branches:
       - main
+    # A release tag (YYMM or YYMM.N, see release.yml) publishes immutable <distro>-<release> images and,
+    # when it is the newest release, moves the floating <distro> tags to it.
+    tags:
+      # No '+' or '*': their GitHub glob meaning is easy to misread. Two digits allow .1 to .99.
+      - '[0-9][0-9][0-9][0-9]'
+      - '[0-9][0-9][0-9][0-9].[1-9]'
+      - '[0-9][0-9][0-9][0-9].[1-9][0-9]'
   workflow_dispatch:
-
+    inputs:
+      release:
+        description: >-
+          Existing release tag (e.g. 2610 or 2610.1) to publish as <distro>-<release> (+ <distro> if it is
+          the newest release). Leave empty to publish <distro>-main; then run it on main.
+        required: false
+        default: ''
+  # Weekly: rebuild the latest release on fresh base images (security updates) and move only the
+  # floating tags. Immutable tags are never rebuilt.
   schedule:
     - cron: '0 4 * * 0'
 
-jobs:
-  build_image:
-    if: github.event_name == 'pull_request' || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        ros_distro: [humble, jazzy]
+permissions:
+  contents: read
 
+# Runs that move the floating tags (release, weekly refresh) are serialized in one group, so a
+# refresh that started before a new release can never move :<distro> back to the older one.
+# Pull requests cancel their own superseded runs.
+concurrency:
+  group: >-
+    docker-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref)
+    || ((github.event_name == 'schedule' || github.ref_type == 'tag'
+         || (github.event_name == 'workflow_dispatch' && inputs.release != '')) && 'floating-tags'
+    || github.ref) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Plan images and tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      ref: ${{ steps.plan.outputs.ref }}
+      sha: ${{ steps.plan.outputs.sha }}
+      release: ${{ steps.plan.outputs.release }}
+      has_work: ${{ steps.plan.outputs.has_work }}
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Checkout repository (with tags)
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Plan
+        id: plan
+        env:
+          # Reaches the planner through env only, never interpolated into a script.
+          INPUT_RELEASE: ${{ inputs.release }}
+        run: python3 scripts/plan_images.py
+
+      - name: Log in to Docker Hub
+        if: steps.plan.outputs.immutable != ''
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Refuse to overwrite immutable release tags
+        if: steps.plan.outputs.immutable != ''
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          IMMUTABLE: ${{ steps.plan.outputs.immutable }}
+        run: |
+          read -ra tag_list <<<"$IMMUTABLE"
+          scripts/publish.sh check-immutable "$REPO" "${tag_list[@]}"
+
+  # Pull requests: build every distro and run the end-to-end smoke test. Nothing is pushed.
+  build_image:
+    name: Build + smoke (${{ matrix.distro }})
+    needs: plan
+    if: github.event_name == 'pull_request' && needs.plan.outputs.mode == 'test'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    # Rolling can break in place: best-effort, never fails the run or cancels the LTS builds.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
 
-      - name: Docker build (${{ matrix.ros_distro }})
-        run: |
-          docker build -t ros2_mcp --build-arg ROS_DISTRO=${{ matrix.ros_distro }} .
+      - name: Docker build (${{ matrix.distro }})
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: docker build --pull -t ros2_mcp --build-arg ROS_DISTRO="$DISTRO" .
 
-      - name: ROS 2 type support smoke test (${{ matrix.ros_distro }})
-        run: |
-          docker run --rm --entrypoint bash ros2_mcp -lc '
-            source /opt/ros/${{ matrix.ros_distro }}/setup.bash
-            source /root/wisevision_ws/install/setup.bash
-            /app/.venv/bin/python3 -c "from builtin_interfaces.msg import Time; from rclpy.serialization import serialize_message; Time.__import_type_support__(); serialize_message(Time(sec=1, nanosec=2)); print(\"ROS 2 type support smoke test passed\")"
-          '
+      - name: ROS 2 type support smoke test (${{ matrix.distro }})
+        run: scripts/smoke_e2e.sh --type-support-only ros2_mcp
 
-  build_and_push_arm64:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Build & Push (ARM64)
-    runs-on: wisevision-runner
+      - name: End-to-end smoke, every shipped RMW (${{ matrix.distro }})
+        run: scripts/smoke_e2e.sh ros2_mcp
+
+  # The same on a native arm64 runner, so arm64 is proven before anything is merged.
+  build_image_arm64:
+    name: Build + smoke ARM64 (${{ matrix.distro }})
+    needs: plan
+    if: github.event_name == 'pull_request' && needs.plan.outputs.mode == 'test'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
-      matrix:
-        ros_distro: [humble, jazzy]
-    container:
-      image: ubuntu:22.04
-
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
-      - name: Install Docker CLI
-        run: |
-          apt-get update
-          apt-get install -y docker.io
+      - name: Docker build (${{ matrix.distro }}, arm64)
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: docker build --pull -t ros2_mcp --build-arg ROS_DISTRO="$DISTRO" .
 
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_HUB_USERNAME }}
-          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+      - name: ROS 2 type support smoke test (${{ matrix.distro }}, arm64)
+        run: scripts/smoke_e2e.sh --type-support-only ros2_mcp
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: End-to-end smoke, every shipped RMW (${{ matrix.distro }}, arm64)
+        run: scripts/smoke_e2e.sh ros2_mcp
 
-      - name: Build & push ARM64 image
-        run: |
-          docker buildx build \
-            --platform linux/arm64 \
-            --file Dockerfile \
-            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64 \
-            --push \
-            .
-
-  build_and_push_amd64: 
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Build & Push (AMD64)
+  # The publish jobs never run for pull requests, whatever the planner says: on a pull request
+  # the planner is the pull request's own code.
+  build_and_push_amd64:
+    name: Build + smoke + push AMD64 (${{ matrix.distro }})
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request'
+      && needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
-      matrix:
-        ros_distro: [humble, jazzy]
-
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      # Unique per distro and run: jobs sharing a Docker daemon can never swap each other's image.
+      LOCAL_IMAGE: ros2_mcp_amd64:${{ matrix.distro }}-${{ github.run_id }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      # The publishing scripts come from this workflow's commit, the source from the ref being
+      # published (an older release may predate the scripts).
+      - name: Checkout publishing scripts
+        uses: actions/checkout@v5
+        with:
+          path: ci
+
+      - name: Checkout the ref being published
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          path: src
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build (${{ matrix.distro }})
+        env:
+          DISTRO: ${{ matrix.distro }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          docker buildx build --pull --platform linux/amd64 --load -t "$LOCAL_IMAGE" \
+            --build-arg ROS_DISTRO="$DISTRO" \
+            --label "org.opencontainers.image.revision=$SHA" \
+            --label "io.github.wise-vision.ros2-mcp.run-id=$RUN_ID" src
+
+      # Nothing is published unless the image works against a live ROS 2 graph. Images of releases
+      # older than the smoke client only get the type-support check.
+      - name: Smoke test before publishing
+        run: |
+          ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
+          if docker run --rm --entrypoint test "$LOCAL_IMAGE" -f /app/scripts/smoke_client.py; then
+            ci/scripts/smoke_e2e.sh "$LOCAL_IMAGE"
+          fi
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push AMD64 image
+      - name: Push the tested image as AMD64 (${{ matrix.tags }})
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          TAGS: ${{ matrix.tags }}
+          RUN_ID: ${{ github.run_id }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --file Dockerfile \
-            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
-            --push \
-            .
+          read -ra tag_list <<<"$TAGS"
+          ci/scripts/publish.sh push "$REPO" "$LOCAL_IMAGE" amd64 "${tag_list[@]}"
+
+  # Native arm64 (GitHub-hosted, free for public repositories): same steps as amd64.
+  build_and_push_arm64:
+    name: Build + smoke + push ARM64 (${{ matrix.distro }})
+    needs: plan
+    if: >-
+      github.event_name != 'pull_request'
+      && needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      # Unique per distro and run: jobs sharing a Docker daemon can never swap each other's image.
+      LOCAL_IMAGE: ros2_mcp_arm64:${{ matrix.distro }}-${{ github.run_id }}
+    steps:
+      - name: Checkout publishing scripts
+        uses: actions/checkout@v5
+        with:
+          path: ci
+
+      - name: Checkout the ref being published
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.plan.outputs.ref }}
+          path: src
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
+
+      - name: Build (${{ matrix.distro }})
+        env:
+          DISTRO: ${{ matrix.distro }}
+          SHA: ${{ needs.plan.outputs.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          docker buildx build --pull --platform linux/arm64 --load -t "$LOCAL_IMAGE" \
+            --build-arg ROS_DISTRO="$DISTRO" \
+            --label "org.opencontainers.image.revision=$SHA" \
+            --label "io.github.wise-vision.ros2-mcp.run-id=$RUN_ID" src
+
+      # Same gate as amd64: nothing is published unless the image works against a live graph.
+      - name: Smoke test before publishing
+        run: |
+          ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
+          if docker run --rm --entrypoint test "$LOCAL_IMAGE" -f /app/scripts/smoke_client.py; then
+            ci/scripts/smoke_e2e.sh "$LOCAL_IMAGE"
+          fi
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
+
+      - name: Push the tested image as ARM64 (${{ matrix.tags }})
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          TAGS: ${{ matrix.tags }}
+          RUN_ID: ${{ github.run_id }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          read -ra tag_list <<<"$TAGS"
+          ci/scripts/publish.sh push "$REPO" "$LOCAL_IMAGE" arm64 "${tag_list[@]}"
 
   merge_manifests:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    name: Merge Images into Multi-Arch (Docker Hub)
-    runs-on: wisevision-runner
-    needs: [build_and_push_arm64, build_and_push_amd64]
+    name: Multi-arch tags (${{ matrix.distro }})
+    needs: [plan, build_and_push_arm64, build_and_push_amd64]
+    # always(): one distro's failed build must not freeze every other distro's tags. Each leg
+    # merges only variants built by this run (publish.sh merge), so a failed distro stays red
+    # and is never filled in from an older image.
+    if: >-
+      always() && !cancelled() && needs.plan.result == 'success'
+      && github.event_name != 'pull_request'
+      && needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: ${{ matrix.experimental }}
     strategy:
-      matrix:
-        ros_distro: [humble, jazzy]
-    container:
-      image: ubuntu:22.04
-
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
-      - name: Install Docker CLI
-        run: |
-          apt-get update
-          apt-get install -y docker.io
+      - name: Checkout publishing scripts
+        uses: actions/checkout@v5
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
         with:
           username: ${{ secrets.DOCKER_HUB_USERNAME }}
           password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
-      - name: Merge ARM64 and AMD64 into one multi-arch tag (Docker Hub)
+      # Only variants built by THIS run are merged, so a failed arch is never filled in from an
+      # older run's image; floating tags only if the release is still the newest (publish.sh).
+      - name: Merge AMD64 + ARM64 into each multi-arch tag
+        env:
+          REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
+          TAGS: ${{ matrix.tags }}
+          RUN_ID: ${{ github.run_id }}
+          EXPERIMENTAL: ${{ matrix.experimental }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
-          docker buildx imagetools create \
-            --tag ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }} \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-amd64 \
-            ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}-arm64
-
-          docker buildx imagetools inspect ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp:${{ matrix.ros_distro }}
+          read -ra tag_list <<<"$TAGS"
+          scripts/publish.sh merge "$REPO" "$RUN_ID" "$EXPERIMENTAL" "${tag_list[@]}"

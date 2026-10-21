@@ -65,13 +65,39 @@ Also included: four built-in [prompts](#-prompts), automatic QoS selection for t
 
 ## 🧭 Supported ROS 2 distributions
 
-| Distro | Status |
-|---|---|
-| **Jazzy Jalisco** (Ubuntu 24.04, Python 3.12) | Supported. Tests run in CI on `ros:jazzy-ros-base`; Docker image `wisevision/ros2_mcp:jazzy`. |
-| **Humble Hawksbill** (Ubuntu 22.04, Python 3.10) | Supported. Tests run in CI on `ros:humble-ros-base`; Docker image `wisevision/ros2_mcp:humble`. |
-| Iron, Kilted, Rolling | Not tested and not shipped. It may work from source; we make no promise. [Open an issue](https://github.com/wise-vision/ros2_mcp/issues) if you need one. |
+| Distro | Ubuntu · Python | ROS EOL | Status | Tested in CI | Image tags (`wisevision/ros2_mcp`, amd64 + arm64) |
+|---|---|---|---|---|---|
+| **Lyrical Luth** | 26.04 · 3.14 | May 2031 | ✅ Supported (LTS) | Unit tests + end-to-end smoke | `:lyrical` · `:lyrical-<release>` · `:latest` |
+| **Jazzy Jalisco** | 24.04 · 3.12 | May 2029 | ✅ Supported (LTS) · default | Unit tests + end-to-end smoke | `:jazzy` · `:jazzy-<release>` |
+| **Humble Hawksbill** | 22.04 · 3.10 | May 2027 | ✅ Supported (LTS) | Unit tests + end-to-end smoke | `:humble` · `:humble-<release>` |
+| **Rolling Ridley** | 26.04 · 3.14 | rolling | 🧪 Experimental: tested, never blocks a release | Unit tests + end-to-end smoke (allowed to fail) | `:rolling` |
+| Kilted Kaiju | 24.04 · 3.12 | Dec 2026 | ❌ Not shipped (short-term release) | — | — |
+
+Every LTS distribution is supported for its whole ROS lifetime. Short-term releases are skipped: use the LTS before or after them. Rolling tracks the next LTS, so problems show up months before it ships. It can break in place, so its image is best-effort.
+
+**Tested in CI** means:
+- **Unit tests** run on every pull request and nightly, inside the official `ros:<distro>-ros-base` image.
+- **End-to-end smoke** runs on every pull request and before every image is published, including the weekly rebuild. It builds the Docker image and starts a real publisher in a second container. The server then runs over stdio in read-only mode and must find the topic, receive its messages and register no state-changing tool. This runs once for each RMW in the image: `rmw_fastrtps_cpp` (default), `rmw_cyclonedds_cpp` and `rmw_zenoh_cpp` (with a router). Run it yourself with `scripts/smoke_e2e.sh <image>`.
+
+The server must use the same distribution as your robot: ROS 2 does not support nodes talking across distributions. Message packages for common stacks (Nav2, MAVROS, MoveIt, ros2_control, vision_msgs) are in every image where the distro releases them. On Rolling, `nav2_msgs` is not released yet; the image lists what it skipped in `/etc/ros2_mcp/skipped-packages`.
 
 ROS 1 is not supported (the server uses `rclpy`). Python 3.10 or newer.
+
+Lyrical and Rolling images are published from the first release after 2610.
+
+### 🏷️ Docker image tags
+
+Pick a tag by what you want to happen when we ship something new:
+
+| Tag | What it is | When it changes | Use it for |
+|---|---|---|---|
+| `:jazzy` (any distro) | The latest release for that distro | At each release, and weekly with security updates of the base image | **Most people.** Pin your robot's distro and get tested updates automatically |
+| `:jazzy-2610`, `:jazzy-2610.1` | That release, exactly | Never. We refuse to overwrite it | Reproducible setups: MCP catalogs, CI, fleets you roll out on your own schedule |
+| `:jazzy-main` | Merged but not yet released | Every merge to `main` | Trying a fix before it is released |
+| `:latest` | The newest LTS (`:lyrical`) | With `:lyrical` | Quick tries when you don't care about the distro. A robot needs its own distro |
+| `:rolling` | The latest release on Rolling | At each release and weekly. Best-effort | Rolling users. There is no frozen Rolling tag, because Rolling itself changes in place |
+
+Every tag is multi-arch (amd64 + arm64). `-amd64` / `-arm64` variants exist for each, and are immutable too for release tags. Releases are cut whenever something user-visible lands, so `:<distro>` never lags far behind `main`. They are named `YYMM`; a second release in the same month is `YYMM.1`, `YYMM.2`, ... Nothing is published untested: amd64 and arm64 images are both built natively and both pass the end-to-end smoke test (a live ROS 2 graph on every shipped RMW). The pushed image is the exact image that was tested. For a bit-for-bit pin, use the digest: `wisevision/ros2_mcp@sha256:…`.
 
 ## 🆚 How it compares
 
@@ -105,6 +131,7 @@ What users ask for that is **not** in ROS2 MCP today. No dates; open an issue or
 
 If you are an agent (or building one) using this server:
 
+- **Match the robot's distro.** Use `wisevision/ros2_mcp:<distro>` with the robot's ROS 2 distribution (`ros2 doctor --report` or `echo $ROS_DISTRO` on the robot shows it); ROS 2 nodes can't talk across distributions. Pin `:<distro>-<release>` if you write a config someone else will run later.
 - **Discover before you act.** Call `ros2_topic_list`, `ros2_service_list`, `ros2_list_actions` and `ros2_interface_list`, then `ros2_get_message_fields` for the exact message type, before any publish, service call or action goal. Do not guess field names.
 - **Prefer read-only.** If `ros2_topic_publish`, `ros2_service_call`, `ros2_send_action_goal` are absent from `list_tools`, the operator started the server in read-only mode; do not try to work around it.
 - **Mutating tools move real machines.** Confirm intent with the human before calling a ⚠ tool, start with small values and a short duration, and keep `ros2_cancel_action_goal` in mind.

@@ -46,8 +46,12 @@ DEFAULT_OUT = REPO_ROOT / "docs" / "generated"
 FILES = ("tools.json", "tools.md")
 SOURCE_PATHS = ("server", "pyproject.toml")
 MUTATING_BADGE = "⚠ mutates robot state"
-RELEASE_GLOB = "[0-9][0-9][0-9][0-9]"
-RELEASE_RE = re.compile(r"^[0-9]{4}$")
+# YYMM, or YYMM.N for another release in the same month. Same rule as scripts/plan_images.py.
+# Exactly the release tags RELEASE_RE accepts (no wildcards), so `git describe` can never name a
+# non-release tag such as 2610.10-rc1.
+RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].[1-9]", "[0-9][0-9][0-9][0-9].[1-9][0-9]")
+RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]?)?$")
+RELEASE_MATCH = [arg for glob in RELEASE_GLOBS for arg in ("--match", glob)]  # for git describe
 
 # --------------------------------------------------------------------------
 # Registry + metadata
@@ -112,25 +116,34 @@ def _run_git(root: pathlib.Path, *args: str) -> str:
 
 
 def is_release(ref: str) -> bool:
-    """Release tags follow the ``YYMM`` scheme (see CHANGELOG.md and release.yml)."""
+    """Release tags are ``YYMM`` or ``YYMM.N`` (see release.yml)."""
     return bool(RELEASE_RE.match(ref or ""))
+
+
+def release_key(tag: str) -> tuple[int, int]:
+    """Numeric order of a release tag: 2610 < 2610.1 < 2610.10 < 2611."""
+    yymm, _, n = tag.partition(".")
+    return int(yymm), int(n or 0)
 
 
 def resolve_release(root: pathlib.Path, package_version: str) -> str:
     """The ROS2 MCP release the docs belong to.
 
     1. HEAD carries a release tag: that tag (what a tag build must stamp).
-    2. pyproject's version is a release (``YYMM``): that version. Release prep
+    2. pyproject's version is a release (``YYMM`` / ``YYMM.N``): that version. Release prep
        bumps it before tagging, so the stamp does not change when the tag lands.
-    3. Otherwise the nearest release tag in HEAD's history, else ``unreleased``.
+    3. Otherwise the newest release tag in HEAD's history, else ``unreleased``. Tags are listed
+       and filtered with ``is_release``: a nearer non-release tag (``2610.rc1``) cannot hide a
+       release behind it.
     """
     at_head = [t for t in _run_git(root, "tag", "--points-at", "HEAD").split() if is_release(t)]
     if at_head:
-        return sorted(at_head)[-1]
+        return max(at_head, key=release_key)
     if is_release(package_version):
         return package_version
-    nearest = _run_git(root, "describe", "--tags", "--abbrev=0", "--match", RELEASE_GLOB, "HEAD")
-    return nearest if is_release(nearest) else "unreleased"
+    merged = _run_git(root, "tag", "--list", "--merged", "HEAD")
+    released = [t for t in merged.split() if is_release(t)] if merged != "unknown" else []
+    return max(released, key=release_key) if released else "unreleased"
 
 
 def _describe_source(root: pathlib.Path, source_sha: str) -> str:
@@ -144,7 +157,7 @@ def _describe_source(root: pathlib.Path, source_sha: str) -> str:
         return "unknown"
     own = [t for t in _run_git(root, "tag", "--points-at", source_sha).split() if t != "unknown"]
     excludes = [arg for t in own for arg in ("--exclude", t)]
-    return _run_git(root, "describe", "--tags", "--always", "--match", RELEASE_GLOB, *excludes, source_sha)
+    return _run_git(root, "describe", "--tags", "--always", *RELEASE_MATCH, *excludes, source_sha)
 
 
 def compute_provenance(root: pathlib.Path = REPO_ROOT) -> dict:
