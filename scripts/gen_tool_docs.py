@@ -47,9 +47,10 @@ FILES = ("tools.json", "tools.md")
 SOURCE_PATHS = ("server", "pyproject.toml")
 MUTATING_BADGE = "⚠ mutates robot state"
 # YYMM, or YYMM.N for another release in the same month. Same rule as scripts/plan_images.py.
-# git describe globs are fnmatch, not regex: they only narrow the search, RELEASE_RE decides.
-RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].[1-9]", "[0-9][0-9][0-9][0-9].[1-9][0-9]*")
-RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]*)?$")
+# Exactly the release tags RELEASE_RE accepts (no wildcards), so `git describe` can never name a
+# non-release tag such as 2610.10-rc1.
+RELEASE_GLOBS = ("[0-9][0-9][0-9][0-9]", "[0-9][0-9][0-9][0-9].[1-9]", "[0-9][0-9][0-9][0-9].[1-9][0-9]")
+RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]?)?$")
 RELEASE_MATCH = [arg for glob in RELEASE_GLOBS for arg in ("--match", glob)]  # for git describe
 
 # --------------------------------------------------------------------------

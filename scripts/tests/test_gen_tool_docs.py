@@ -331,6 +331,16 @@ def test_provenance_non_release_dotted_tag_does_not_hide_the_release(tmp_path):
     assert gen.compute_provenance(repo)["release"] == "2610"
 
 
+def test_provenance_describe_never_names_a_non_release_tag(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _commit(repo, "server/a.py", "a = 3\n", "server c")
+    _git(repo, "tag", "2610.10-rc1")  # nearer than 2610; a loose describe glob would pick it
+    _commit(repo, "server/a.py", "a = 4\n", "server d")
+    prov = gen.compute_provenance(repo)
+    assert prov["release"] == "2610"
+    assert prov["git_describe"].startswith("2610-"), prov["git_describe"]
+
+
 def test_provenance_picks_highest_release_at_head_numerically(tmp_path):
     repo, _ = _history(tmp_path, "0.1.0")
     _git(repo, "tag", "2610.2")

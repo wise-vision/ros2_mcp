@@ -36,7 +36,7 @@ RUN_LABEL=io.github.wise-vision.ros2-mcp.run-id
 
 die() { echo "::error::$*" >&2; exit 1; }
 
-RELEASE_RE='^[0-9]{4}([.][1-9][0-9]*)?$'   # same rule as scripts/plan_images.py
+RELEASE_RE='^[0-9]{4}([.][1-9][0-9]?)?$'   # same rule as scripts/plan_images.py
 
 # Print, space-separated, the tags that may be published now (see the header).
 publishable() {

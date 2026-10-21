@@ -189,7 +189,8 @@ def test_docs_generator_orders_releases_like_the_planner():
     spec = importlib.util.spec_from_file_location("gen_tool_docs", REPO_ROOT / "scripts" / "gen_tool_docs.py")
     gen = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gen)
-    tags = ["2508", "2610", "2610.1", "2610.2", "2610.10", "2611", "2610.rc1", "2610.0", "v2610"]
+    tags = ["2508", "2610", "2610.1", "2610.2", "2610.10", "2611", "2610.rc1", "2610.0", "v2610",
+            "2610.100", "2610.10-rc1"]
     for t in tags:
         assert bool(gen.is_release(t)) == bool(pi.RELEASE_RE.match(t)), t
     released = [t for t in tags if pi.RELEASE_RE.match(t)]
@@ -220,7 +221,7 @@ def test_refresh_with_no_release_yet_does_nothing():
 # --- rejections --------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("release", ["26100", "v2610", "2610; touch /tmp/x", "abcd",
-                                     "2610.", "2610.0", "2610.01", "2610.1.1", "2610-1"])
+                                     "2610.", "2610.0", "2610.01", "2610.1.1", "2610-1", "2610.100"])
 def test_malformed_release_is_rejected(release):
     with pytest.raises(pi.PlanError, match="YYMM"):
         run("workflow_dispatch", release=release)
@@ -348,6 +349,17 @@ def test_every_release_tag_triggers_the_workflow(workflow):
         assert any(_glob_to_regex(g).match(tag) for g in globs), f"{workflow} ignores release {tag}"
     for tag in ["v2610", "2610-rc1", "latest", "2610.0", "2610.01"]:
         assert not any(_glob_to_regex(g).match(tag) for g in globs), f"{workflow} fires on {tag}"
+
+
+def test_server_version_test_uses_the_planner_rule():
+    text = (REPO_ROOT / "tests" / "server_version_test.py").read_text()
+    assert "scripts\" / \"plan_images.py" in text and "isdigit" not in text
+
+
+def test_publish_script_uses_the_same_release_rule():
+    text = (REPO_ROOT / "scripts" / "publish.sh").read_text()
+    assert "RELEASE_RE='^[0-9]{4}([.][1-9][0-9]?)?$'" in text
+    assert pi.RELEASE_RE.pattern == r"^[0-9]{4}(\.[1-9][0-9]?)?$"
 
 
 def test_docs_generator_agrees_on_what_a_release_tag_is():

@@ -40,10 +40,21 @@ def test_server_info_version_is_not_the_sdk_version():
     assert init.server_version != pkg_version("mcp")
 
 
+def _release_rule():
+    # The planner owns the rule (YYMM, or YYMM.N for another release that month); loaded by path
+    # so this test and the release gate can never disagree.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("plan_images", REPO_ROOT / "scripts" / "plan_images.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.RELEASE_RE
+
+
 def test_package_version_tracks_the_release_scheme():
-    # Releases are tagged YYMM (see CHANGELOG.md); the package version follows it.
+    # Releases are tagged YYMM or YYMM.N (see release.yml); the package version follows it.
     v = _pyproject_version()
-    assert v.isdigit() and len(v) == 4, v
+    assert _release_rule().match(v), v
     changelog = (REPO_ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## {v} " in changelog or f"## {v}\n" in changelog
 

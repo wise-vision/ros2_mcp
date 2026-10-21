@@ -37,7 +37,7 @@ Modes, from the triggering event:
                is the newest release. Backfilling an older release never moves floating tags.
 
 Release tags are ``YYMM`` (``2610``) or, for another release in the same month, ``YYMM.N``
-(``2610.1``, ``2610.2``, ...). They order numerically: 2610 < 2610.1 < 2610.10 < 2611. A release
+with N from 1 to 99 (``2610.1``, ``2610.2``, ...). They order numerically: 2610 < 2610.1 < 2610.10 < 2611. A release
 whose source carries ``.github/distros.json`` must also carry that version in ``server.json`` and
 ``pyproject.toml`` (release prep bumps both before tagging): the plan fails before anything builds
 otherwise, so neither the registry metadata nor the generated docs can claim a version the image is
@@ -61,7 +61,7 @@ import re
 import subprocess
 import sys
 
-RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]*)?$")
+RELEASE_RE = re.compile(r"^[0-9]{4}(\.[1-9][0-9]?)?$")  # N = 1..99, as the workflow tag filters
 DISTROS_FILE = ".github/distros.json"
 # What every release shipped before .github/distros.json existed. Only releases up to
 # LAST_LEGACY_RELEASE may lack the file; a newer release without it is refused, never treated as
