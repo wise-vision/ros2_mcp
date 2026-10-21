@@ -15,6 +15,9 @@ dependencies = [
     "h11>=0.16.0",
     # numpy must match the ABI the distro's ROS message extensions were built against:
     # numpy 1.x on Humble/Jazzy (Python 3.10/3.12), numpy 2.x on Lyrical/Rolling (Python 3.14).
+    # Do not lift the <2.0 cap: numpy 2 cannot load the 1.x-built Humble/Jazzy extensions
+    # ("A module that was compiled using NumPy 1.x cannot be run in NumPy 2.x"). The image's
+    # type-support smoke test imports and serializes messages, so a mismatch fails before any push.
     "numpy>=1.21,<2.0; python_version < '3.13'",
     "numpy>=2.3,<3; python_version >= '3.13'",
     "PyYAML",

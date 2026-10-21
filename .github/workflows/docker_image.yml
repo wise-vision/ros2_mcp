@@ -63,6 +63,7 @@ jobs:
       mode: ${{ steps.plan.outputs.mode }}
       ref: ${{ steps.plan.outputs.ref }}
       sha: ${{ steps.plan.outputs.sha }}
+      release: ${{ steps.plan.outputs.release }}
       has_work: ${{ steps.plan.outputs.has_work }}
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -135,6 +136,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      # Unique per distro and run: jobs sharing a Docker daemon can never swap each other's image.
+      LOCAL_IMAGE: ros2_mcp_amd64:${{ matrix.distro }}-${{ github.run_id }}
     steps:
       # The publishing scripts come from this workflow's commit, the source from the ref being
       # published (an older release may predate the scripts).
@@ -158,7 +162,7 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          docker buildx build --pull --platform linux/amd64 --load -t ros2_mcp \
+          docker buildx build --pull --platform linux/amd64 --load -t "$LOCAL_IMAGE" \
             --build-arg ROS_DISTRO="$DISTRO" \
             --label "org.opencontainers.image.revision=$SHA" \
             --label "io.github.wise-vision.ros2-mcp.run-id=$RUN_ID" src
@@ -167,9 +171,9 @@ jobs:
       # older than the smoke client only get the type-support check.
       - name: Smoke test before publishing
         run: |
-          ci/scripts/smoke_e2e.sh --type-support-only ros2_mcp
-          if docker run --rm --entrypoint test ros2_mcp -f /app/scripts/smoke_client.py; then
-            ci/scripts/smoke_e2e.sh ros2_mcp
+          ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
+          if docker run --rm --entrypoint test "$LOCAL_IMAGE" -f /app/scripts/smoke_client.py; then
+            ci/scripts/smoke_e2e.sh "$LOCAL_IMAGE"
           fi
 
       - name: Log in to Docker Hub
@@ -182,9 +186,11 @@ jobs:
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
           TAGS: ${{ matrix.tags }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           read -ra tag_list <<<"$TAGS"
-          ci/scripts/publish.sh push "$REPO" ros2_mcp amd64 "${tag_list[@]}"
+          ci/scripts/publish.sh push "$REPO" "$LOCAL_IMAGE" amd64 "${tag_list[@]}"
 
   # arm64 builds under QEMU emulation on the self-hosted runner, so it gets the type-support check;
   # the end-to-end smoke runs on amd64.
@@ -202,6 +208,9 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     container:
       image: ubuntu:22.04
+    env:
+      # Unique per distro and run: jobs sharing the runner's Docker daemon can never swap images.
+      LOCAL_IMAGE: ros2_mcp_arm64:${{ matrix.distro }}-${{ github.run_id }}
     steps:
       - name: Checkout publishing scripts
         uses: actions/checkout@v5
@@ -214,10 +223,10 @@ jobs:
           ref: ${{ needs.plan.outputs.ref }}
           path: src
 
-      - name: Install Docker CLI
+      - name: Install Docker CLI and git
         run: |
           apt-get update
-          apt-get install -y docker.io
+          apt-get install -y docker.io git
 
       # The runner is x86-64; arm64 RUN steps need QEMU registered in the host kernel, and that
       # registration does not survive a reboot. Register it on every run.
@@ -235,13 +244,13 @@ jobs:
           SHA: ${{ needs.plan.outputs.sha }}
           RUN_ID: ${{ github.run_id }}
         run: |
-          docker buildx build --pull --platform linux/arm64 --load -t ros2_mcp_arm64 \
+          docker buildx build --pull --platform linux/arm64 --load -t "$LOCAL_IMAGE" \
             --build-arg ROS_DISTRO="$DISTRO" \
             --label "org.opencontainers.image.revision=$SHA" \
             --label "io.github.wise-vision.ros2-mcp.run-id=$RUN_ID" src
 
       - name: Type-support smoke test before publishing
-        run: ci/scripts/smoke_e2e.sh --type-support-only ros2_mcp_arm64
+        run: ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
 
       - name: Log in to Docker Hub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3
@@ -253,9 +262,11 @@ jobs:
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
           TAGS: ${{ matrix.tags }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           read -ra tag_list <<<"$TAGS"
-          ci/scripts/publish.sh push "$REPO" ros2_mcp_arm64 arm64 "${tag_list[@]}"
+          ci/scripts/publish.sh push "$REPO" "$LOCAL_IMAGE" arm64 "${tag_list[@]}"
 
   merge_manifests:
     name: Multi-arch tags (${{ matrix.distro }})
@@ -287,13 +298,15 @@ jobs:
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
 
       # Only variants built by THIS run are merged, so a failed arch is never filled in from an
-      # older run's image.
+      # older run's image; floating tags only if the release is still the newest (publish.sh).
       - name: Merge AMD64 + ARM64 into each multi-arch tag
         env:
           REPO: ${{ secrets.DOCKER_HUB_USERNAME }}/ros2_mcp
           TAGS: ${{ matrix.tags }}
           RUN_ID: ${{ github.run_id }}
           EXPERIMENTAL: ${{ matrix.experimental }}
+          RELEASE: ${{ needs.plan.outputs.release }}
+          RELEASE_REMOTE: ${{ github.server_url }}/${{ github.repository }}
         run: |
           read -ra tag_list <<<"$TAGS"
           scripts/publish.sh merge "$REPO" "$RUN_ID" "$EXPERIMENTAL" "${tag_list[@]}"

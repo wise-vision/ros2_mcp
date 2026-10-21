@@ -23,12 +23,45 @@
 #       would silently be filled in from an older run. For an experimental distro that tag is
 #       skipped with a warning; for a supported one it is an error.
 #
+# push and merge, when RELEASE is set (release and refresh runs), first re-check against the live
+# tag list (git ls-remote RELEASE_REMOTE) that RELEASE is still the newest release. If a newer one
+# exists, they publish only RELEASE's own immutable tags (*-RELEASE) and leave every floating tag
+# alone. The plan was made when the run started; "Re-run failed jobs" on an older release reuses
+# that plan, and without this check it would move :<distro> back. An unreadable tag list fails.
+#
 # Images must be built with: --label "io.github.wise-vision.ros2-mcp.run-id=<run-id>".
 set -euo pipefail
 
 RUN_LABEL=io.github.wise-vision.ros2-mcp.run-id
 
 die() { echo "::error::$*" >&2; exit 1; }
+
+RELEASE_RE='^[0-9]{4}([.][1-9][0-9]*)?$'   # same rule as scripts/plan_images.py
+
+# Print, space-separated, the tags that may be published now (see the header).
+publishable() {
+  local release=${RELEASE:-} listing newest tag kept=()
+  if [ -z "$release" ]; then
+    echo "$*"
+    return
+  fi
+  [ -n "${RELEASE_REMOTE:-}" ] || die "RELEASE is set but RELEASE_REMOTE is not"
+  listing=$(git ls-remote --tags "$RELEASE_REMOTE") || die "cannot list release tags of $RELEASE_REMOTE"
+  # sort -V orders 2610 < 2610.1 < 2610.2 < 2610.10 < 2611, like release_key in plan_images.py
+  # Peeled entries (refs/tags/2610^{}) fail RELEASE_RE and drop out; the plain entry remains.
+  # shellcheck disable=SC2001  # a per-line edit of a multi-line listing
+  newest=$(sed 's#^.*refs/tags/##' <<<"$listing" | grep -E "$RELEASE_RE" | sort -uV | tail -n 1) || true
+  [ -n "$newest" ] || die "no release tags found at $RELEASE_REMOTE"
+  if [ "$newest" = "$release" ]; then
+    echo "$*"
+    return
+  fi
+  for tag in "$@"; do
+    case $tag in *-"$release") kept+=("$tag") ;; esac
+  done
+  echo "::warning::$release is no longer the newest release ($newest is): publishing only ${kept[*]:-nothing}, leaving the floating tags alone." >&2
+  echo "${kept[*]}"
+}
 
 # 0 = exists, 1 = does not exist, 2 = the registry could not say.
 exists() {
@@ -62,19 +95,23 @@ check_immutable() {
 }
 
 push() {
-  local repo=$1 image=$2 arch=$3 tag
+  local repo=$1 image=$2 arch=$3 tag tags
   shift 3
   case $arch in amd64|arm64) ;; *) die "unknown arch $arch" ;; esac
-  for tag in "$@"; do
+  tags=$(publishable "$@")
+  read -ra tags <<<"$tags"
+  for tag in "${tags[@]}"; do
     docker tag "$image" "$repo:$tag-$arch"
     docker push "$repo:$tag-$arch"
   done
 }
 
 merge() {
-  local repo=$1 run_id=$2 experimental=$3 tag arch got msg out
+  local repo=$1 run_id=$2 experimental=$3 tag arch got msg out tags
   shift 3
-  for tag in "$@"; do
+  tags=$(publishable "$@")
+  read -ra tags <<<"$tags"
+  for tag in "${tags[@]}"; do
     for arch in amd64 arm64; do
       got=$(docker buildx imagetools inspect "$repo:$tag-$arch" \
               --format "{{ index .Image.Config.Labels \"$RUN_LABEL\" }}" 2>/dev/null || true)

@@ -24,6 +24,16 @@ WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 LABEL = "io.github.wise-vision.ros2-mcp.run-id"
 REPO = "example/ros2_mcp"
 
+GIT_STUB = r"""#!/usr/bin/env bash
+# Stub git: `ls-remote --tags <remote>` lists STUB_TAGS (annotated ones also with a peeled ^{} line).
+echo "git $*" >> "$STUB_LOG"
+[ -n "${STUB_GIT_FAIL:-}" ] && { echo "fatal: unable to access" >&2; exit 128; }
+for t in $STUB_TAGS; do
+  printf '%s\trefs/tags/%s\n' 0123456789abcdef0123456789abcdef01234567 "$t"
+  printf '%s\trefs/tags/%s^{}\n' 89abcdef0123456789abcdef0123456789abcdef "$t"
+done
+"""
+
 STUB = r"""#!/usr/bin/env bash
 # Stub docker: imagetools inspect answers from env, everything is logged.
 echo "$*" >> "$STUB_LOG"
@@ -52,13 +62,18 @@ def docker(tmp_path):
     stub = bin_dir / "docker"
     stub.write_text(STUB)
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    git = bin_dir / "git"
+    git.write_text(GIT_STUB)
+    git.chmod(git.stat().st_mode | stat.S_IEXEC)
     log = tmp_path / "docker.log"
     log.write_text("")
 
-    def run(*args, existing=(), error=(), labels=None):
+    def run(*args, existing=(), error=(), labels=None, release="", tags=(), git_fail=False):
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log),
                    STUB_EXISTING=" ".join(existing), STUB_ERROR=" ".join(error),
-                   STUB_LABELS=" ".join(f"{k}={v}" for k, v in (labels or {}).items()))
+                   STUB_LABELS=" ".join(f"{k}={v}" for k, v in (labels or {}).items()),
+                   RELEASE=release, RELEASE_REMOTE="https://example.invalid/repo",
+                   STUB_TAGS=" ".join(tags), STUB_GIT_FAIL="1" if git_fail else "")
         r = subprocess.run(["bash", str(PUBLISH), *args], capture_output=True, text=True, env=env, check=False)
         return r, log.read_text().splitlines()
     return run
@@ -95,6 +110,62 @@ def test_push_pushes_the_tested_local_image_under_each_arch_tag(docker):
         f"tag ros2_mcp {REPO}:jazzy-amd64", f"push {REPO}:jazzy-amd64",
     ]
     assert not any("build" in c for c in calls), "push must not rebuild"
+
+
+# --- floating tags only for the release that is still the newest ------------------------------
+
+def test_push_without_release_does_not_consult_git(docker):
+    r, calls = docker("push", REPO, "img", "amd64", "jazzy-main")
+    assert r.returncode == 0, r.stderr
+    assert not any(c.startswith("git ") for c in calls)
+
+
+def test_push_of_the_newest_release_publishes_floating_tags(docker):
+    r, calls = docker("push", REPO, "img", "amd64", "jazzy-2610.1", "jazzy",
+                      release="2610.1", tags=["2606", "2610", "2610.1"])
+    assert r.returncode == 0, r.stderr
+    assert f"push {REPO}:jazzy-amd64" in calls and f"push {REPO}:jazzy-2610.1-amd64" in calls
+
+
+def test_rerun_of_an_older_release_keeps_floating_tags(docker):
+    # "Re-run failed jobs" on 2610 after 2610.1 shipped: the cached plan still lists :jazzy.
+    r, calls = docker("push", REPO, "img", "arm64", "jazzy-2610", "jazzy", "latest",
+                      release="2610", tags=["2610", "2610.1"])
+    assert r.returncode == 0, r.stderr
+    pushed = [c for c in calls if c.startswith("push ")]
+    assert pushed == [f"push {REPO}:jazzy-2610-arm64"]
+    assert "no longer the newest" in r.stderr
+
+
+def test_merge_of_an_older_release_keeps_floating_tags(docker):
+    existing, labels = _variants("jazzy-2610", "42", "42")
+    existing.append(f"{REPO}:jazzy-2610")
+    r, calls = docker("merge", REPO, "42", "false", "jazzy-2610", "jazzy", existing=existing,
+                      labels=labels, release="2610", tags=["2610", "2610.10", "2610.2"])
+    assert r.returncode == 0, r.stderr
+    creates = [c for c in calls if "imagetools create" in c]
+    assert creates == [f"buildx imagetools create --tag {REPO}:jazzy-2610 {REPO}:jazzy-2610-amd64 {REPO}:jazzy-2610-arm64"]
+
+
+def test_rolling_only_floating_older_release_publishes_nothing(docker):
+    r, calls = docker("push", REPO, "img", "amd64", "rolling", release="2610", tags=["2610", "2610.1"])
+    assert r.returncode == 0, r.stderr
+    assert not any(c.startswith("push ") for c in calls)
+
+
+def test_newest_is_numeric_not_lexical(docker):
+    # 2610.10 > 2610.9 > 2610.2: a lexical sort would call 2610.9 the newest.
+    r, calls = docker("push", REPO, "img", "amd64", "jazzy-2610.10", "jazzy",
+                      release="2610.10", tags=["2610.2", "2610.9", "2610.10", "v9999", "2610.rc1"])
+    assert r.returncode == 0, r.stderr
+    assert f"push {REPO}:jazzy-amd64" in calls
+
+
+def test_unreadable_tag_list_fails_closed(docker):
+    r, calls = docker("push", REPO, "img", "amd64", "jazzy-2610.1", "jazzy", release="2610.1",
+                      tags=["2610.1"], git_fail=True)
+    assert r.returncode == 1
+    assert not any(c.startswith("push ") for c in calls)
 
 
 def test_push_rejects_unknown_arch(docker):
@@ -184,13 +255,19 @@ def test_floating_tag_movers_are_serialized():
 def test_nothing_rebuilds_between_smoke_test_and_push():
     text = (WORKFLOWS / "docker_image.yml").read_text()
     assert "--push" not in text, "a --push build is a second, untested build"
-    for job, image in (("build_and_push_amd64", "ros2_mcp"), ("build_and_push_arm64", "ros2_mcp_arm64")):
-        runs = [s.get("run", "") for s in DOCKER["jobs"][job]["steps"]]
+    for job in ("build_and_push_amd64", "build_and_push_arm64"):
+        spec = DOCKER["jobs"][job]
+        # unique per distro and run, so jobs sharing a Docker daemon can't swap images
+        assert "${{ matrix.distro }}" in spec["env"]["LOCAL_IMAGE"]
+        assert "${{ github.run_id }}" in spec["env"]["LOCAL_IMAGE"]
+        runs = [s.get("run", "") for s in spec["steps"]]
         build = next(r for r in runs if "buildx build" in r)
-        assert "--load" in build and "--pull" in build and f"-t {image} " in build
+        assert "--load" in build and "--pull" in build and '-t "$LOCAL_IMAGE"' in build
         assert LABEL in build and "org.opencontainers.image.revision" in build
+        smoke = [r for r in runs if "smoke_e2e.sh" in r]
+        assert smoke and all('"$LOCAL_IMAGE"' in r for r in smoke)
         push = next(r for r in runs if "publish.sh push" in r)
-        assert f'"$REPO" {image} ' in push, f"{job} must push the image it built and tested"
+        assert '"$REPO" "$LOCAL_IMAGE" ' in push, f"{job} must push the image it built and tested"
 
 
 def test_arm64_registers_qemu_before_building():
@@ -209,6 +286,17 @@ def test_immutable_check_runs_in_plan_job_through_publish_script():
 def test_merge_only_accepts_this_runs_variants():
     runs = [s.get("run", "") for s in DOCKER["jobs"]["merge_manifests"]["steps"]]
     assert any('publish.sh merge "$REPO" "$RUN_ID"' in r for r in runs)
+
+
+@pytest.mark.parametrize("job", PUBLISH_JOBS)
+def test_publish_steps_recheck_that_the_release_is_still_newest(job):
+    steps = [s for s in DOCKER["jobs"][job]["steps"] if "publish.sh push" in s.get("run", "")
+             or "publish.sh merge" in s.get("run", "")]
+    assert steps
+    for s in steps:
+        assert s["env"]["RELEASE"] == "${{ needs.plan.outputs.release }}"
+        assert "github.repository" in s["env"]["RELEASE_REMOTE"]
+    assert DOCKER["jobs"]["plan"]["outputs"]["release"] == "${{ steps.plan.outputs.release }}"
 
 
 def test_one_failed_distro_does_not_freeze_the_others():
