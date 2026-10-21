@@ -84,7 +84,7 @@ jobs:
 
     - uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version: 20  # the Dockerfile's ui_build stage (node:20); keep them equal
 
     - name: Create and sync uv virtual environment
       run: |
@@ -103,6 +103,6 @@ jobs:
       run: |
         # shellcheck disable=SC1090,SC1091  # provided by the ros:<distro> container
         . "/opt/ros/$ROS_DISTRO/setup.sh"
-        # --system-site-packages must not let the distro's numpy shadow the locked one (ABI).
-        uv run --locked python -c "import numpy; assert '/.venv/' in numpy.__file__, numpy.__file__"
+        # --system-site-packages must not let a distro copy (numpy, PyYAML, ...) shadow a locked one.
+        uv run --locked python scripts/check_locked_env.py uv.lock
         uv run --locked pytest

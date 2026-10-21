@@ -39,7 +39,9 @@ STUB = r"""#!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
 if [ "$1 $2 $3" = "buildx imagetools inspect" ]; then
   ref=$4
-  for e in $STUB_ERROR; do [ "$e" = "$ref" ] && { echo "dial tcp: i/o timeout" >&2; exit 1; }; done
+  for e in $STUB_ERROR; do
+    [ "$e" = "$ref" ] && { echo "${STUB_ERROR_MSG:-dial tcp: i/o timeout}" >&2; exit "${STUB_ERROR_RC:-1}"; }
+  done
   for e in $STUB_EXISTING; do
     if [ "$e" = "$ref" ]; then
       if [ "${5:-}" = "--format" ]; then
@@ -49,7 +51,10 @@ if [ "$1 $2 $3" = "buildx imagetools inspect" ]; then
       echo "Name: $ref"; exit 0
     fi
   done
-  echo "ERROR: $ref: not found" >&2; exit 1
+  echo "ERROR: docker.io/$ref: not found" >&2; exit 1
+fi
+if [ "$1 $2 $3" = "buildx imagetools create" ] && [ -n "${STUB_CREATE_FAIL:-}" ]; then
+  echo "ERROR: failed to push" >&2; exit 1
 fi
 exit 0
 """
@@ -69,11 +74,14 @@ def docker(tmp_path):
     log.write_text("")
 
     def run(*args, existing=(), error=(), labels=None, release="", tags=(), git_fail=False,
-            run_id=""):
+            run_id="", error_msg=None, error_rc=None, create_fail=False,
+            remote="https://example.invalid/repo"):
         env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", STUB_LOG=str(log),
                    STUB_EXISTING=" ".join(existing), STUB_ERROR=" ".join(error),
                    STUB_LABELS=" ".join(f"{k}={v}" for k, v in (labels or {}).items()),
-                   RELEASE=release, RELEASE_REMOTE="https://example.invalid/repo",
+                   RELEASE=release, RELEASE_REMOTE=remote or "",
+                   STUB_ERROR_MSG=error_msg or "", STUB_ERROR_RC=str(error_rc or 1),
+                   STUB_CREATE_FAIL="1" if create_fail else "",
                    STUB_TAGS=" ".join(tags), STUB_GIT_FAIL="1" if git_fail else "",
                    RUN_ID=run_id)
         r = subprocess.run(["bash", str(PUBLISH), *args], capture_output=True, text=True, env=env, check=False)
@@ -199,6 +207,57 @@ def test_merge_aligns_a_superseded_floating_tag_this_run_moved(docker):
     assert r.returncode == 0, r.stderr
     creates = [c for c in calls if "imagetools create" in c]
     assert len(creates) == 2 and any(f"--tag {REPO}:jazzy " in c for c in creates)
+
+
+# --- "missing" only when the registry says so ------------------------------------------------
+
+@pytest.mark.parametrize("msg,rc", [
+    ("bash: docker: command not found", 127),             # docker CLI absent
+    ("docker: 'buildx' is not a docker command.", 1),     # plugin absent
+    ("ERROR: unexpected status: 404 page not found", 1),  # a proxy, not the registry
+])
+def test_check_immutable_does_not_read_tool_failures_as_free(docker, msg, rc):
+    r, _ = docker("check-immutable", REPO, "jazzy-2610.1", error=[f"{REPO}:jazzy-2610.1"],
+                  error_msg=msg, error_rc=rc)
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert "are free" not in r.stdout
+
+
+def test_registry_manifest_unknown_means_free(docker):
+    refs = [f"{REPO}:jazzy-2610.1{s}" for s in ("", "-amd64", "-arm64")]
+    r, _ = docker("check-immutable", REPO, "jazzy-2610.1", error=refs,
+                  error_msg="ERROR: MANIFEST_UNKNOWN: manifest unknown")
+    assert r.returncode == 0, r.stderr
+
+
+def test_push_fails_closed_when_the_variant_cannot_be_checked(docker):
+    r, calls = docker("push", REPO, "img", "arm64", "jazzy-2610.1", "jazzy", release="2610.1",
+                      tags=["2610.1"], error=[f"{REPO}:jazzy-2610.1-arm64"], run_id="42")
+    assert r.returncode == 2
+    assert not any(c.startswith("push ") for c in calls)
+
+
+def test_merge_fails_closed_when_a_label_cannot_be_read(docker):
+    # Even for an experimental distro: an unreadable registry is not "this arch failed to build".
+    existing, labels = _variants("rolling", "42", "42")
+    r, calls = docker("merge", REPO, "42", "true", "rolling", existing=existing, labels=labels,
+                      error=[f"{REPO}:rolling-arm64"])
+    assert r.returncode == 2, r.stdout + r.stderr
+    assert not any("imagetools create" in c for c in calls)
+
+
+def test_merge_goes_red_when_create_fails(docker):
+    existing, labels = _variants("jazzy-main", "42", "42")
+    r, _ = docker("merge", REPO, "42", "false", "jazzy-main", existing=existing, labels=labels,
+                  create_fail=True)
+    assert r.returncode != 0
+
+
+def test_release_without_remote_fails_before_pushing(docker):
+    r, calls = docker("push", REPO, "img", "amd64", "jazzy-2610.1", "jazzy", release="2610.1",
+                      tags=["2610.1"], remote=None)
+    assert r.returncode == 1 and "RELEASE_REMOTE" in r.stderr
+    assert not any(c.startswith("push ") for c in calls)
 
 
 def test_push_rejects_unknown_arch(docker):
@@ -347,6 +406,25 @@ def test_publish_steps_recheck_that_the_release_is_still_newest(job):
         assert s["env"]["RELEASE"] == "${{ needs.plan.outputs.release }}"
         assert "github.repository" in s["env"]["RELEASE_REMOTE"]
     assert DOCKER["jobs"]["plan"]["outputs"]["release"] == "${{ steps.plan.outputs.release }}"
+
+
+def test_image_runs_the_server_from_the_checked_venv():
+    run_server = (REPO_ROOT / "scripts" / "run_server.sh").read_text()
+    code = [ln for ln in run_server.splitlines() if not ln.lstrip().startswith("#")]
+    assert code[-1] == 'exec /app/.venv/bin/mcp_ros_2_server "$@"'
+    assert not any("uv run" in ln for ln in code)
+    dockerfile = (REPO_ROOT / "Dockerfile").read_text()
+    sync = dockerfile.index("RUN uv sync --locked --extra custom-prompts\n")
+    assert dockerfile.index("scripts/check_locked_env.py", sync) > sync
+    smoke = (REPO_ROOT / "scripts" / "smoke_e2e.sh").read_text()
+    assert "--read-only --tmpfs /tmp --tmpfs /root/.ros" in smoke
+
+
+def test_ci_node_matches_the_image_ui_build():
+    import re
+    image = re.search(r"FROM .*node:(\d+)", (REPO_ROOT / "Dockerfile").read_text()).group(1)
+    tests = (REPO_ROOT / ".github" / "workflows" / "server_tests.yml").read_text()
+    assert re.search(r"node-version: (\d+)", tests).group(1) == image
 
 
 def test_one_failed_distro_does_not_freeze_the_others():

@@ -83,7 +83,10 @@ for rmw in "${RMWS[@]}"; do
 
   log="$(mktemp)"
   # Named, so cleanup() also removes it when `timeout` kills only the docker CLI.
+  # Read-only root (only /tmp and ROS's log dir writable): the server must not need to write
+  # anywhere else, so `docker run --read-only` works for users.
   timeout 240 docker run --rm -i --name "$RUN_ID-client" "${common[@]}" \
+    --read-only --tmpfs /tmp --tmpfs /root/.ros \
     -e "SMOKE_TOPIC=$topic" -e "SMOKE_PAYLOAD=$payload" --entrypoint bash "$IMAGE" \
     -c "$SRC && /app/.venv/bin/python /app/scripts/smoke_client.py" >"$log" 2>&1
   rc=$?

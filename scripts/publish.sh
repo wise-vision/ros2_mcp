@@ -70,13 +70,21 @@ publishable() {
   echo "${kept[*]}"
 }
 
+# True when inspect output is the registry saying this exact reference has no manifest. buildx
+# prints "ERROR: <normalized ref>: not found"; other registries say "manifest unknown". Anything
+# else (a missing docker/buildx, a proxy's "404 page not found", a timeout) is NOT "missing".
+registry_says_missing() {  # <ref> <inspect output>
+  grep -qF "$1: not found" <<<"$2" || grep -qi 'manifest unknown' <<<"$2"
+}
+
 # 0 = exists, 1 = does not exist, 2 = the registry could not say.
 exists() {
-  local out
-  if out=$(docker buildx imagetools inspect "$1" 2>&1); then
+  local out rc=0
+  out=$(docker buildx imagetools inspect "$1" 2>&1) || rc=$?
+  if [ "$rc" = 0 ]; then
     return 0
   fi
-  if grep -qiE 'not found|manifest unknown|404' <<<"$out"; then
+  if [ "$rc" != 126 ] && [ "$rc" != 127 ] && registry_says_missing "$1" "$out"; then
     return 1
   fi
   echo "::error::cannot check whether $1 exists: $out" >&2
@@ -101,8 +109,19 @@ check_immutable() {
   echo "immutable tags are free: $*"
 }
 
-label_of() {  # the run-id label of a pushed image, '' if absent
-  docker buildx imagetools inspect "$1" --format "{{ index .Image.Config.Labels \"$RUN_LABEL\" }}" 2>/dev/null || true
+# The run-id label of a pushed image; '' if the image or the label is absent. A registry that
+# cannot answer is fatal (exit 2), never read as "absent".
+label_of() {
+  local out rc=0
+  out=$(docker buildx imagetools inspect "$1" --format "{{ index .Image.Config.Labels \"$RUN_LABEL\" }}" 2>&1) || rc=$?
+  if [ "$rc" = 0 ]; then
+    printf '%s' "$out"
+  elif [ "$rc" != 126 ] && [ "$rc" != 127 ] && registry_says_missing "$1" "$out"; then
+    printf ''
+  else
+    echo "::error::cannot read the labels of $1: $out" >&2
+    exit 2
+  fi
 }
 
 push() {

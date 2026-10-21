@@ -94,6 +94,8 @@ RUN uv venv --system-site-packages && uv sync --locked --extra custom-prompts --
 COPY . /app
 COPY --from=ui_build /ui/index.html /app/server/ui/ros2_viewer_app/index.html
 RUN uv sync --locked --extra custom-prompts
+# --system-site-packages must not let a distro copy (numpy, PyYAML, ...) stand in for a locked one.
+RUN . "/opt/ros/${ROS_DISTRO}/setup.sh" && .venv/bin/python scripts/check_locked_env.py uv.lock
 
 RUN mkdir -p /ros2_mcp_prompts /app/custom_msgs
 VOLUME ["/ros2_mcp_prompts"]

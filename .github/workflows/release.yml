@@ -26,6 +26,11 @@ on:
 permissions:
   contents: write
 
+# Re-pushing a tag queues behind the running release instead of racing it.
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest

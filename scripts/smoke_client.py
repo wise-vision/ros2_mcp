@@ -86,6 +86,10 @@ async def main() -> None:
         unreviewed = sorted(names - set(safety.READ_ONLY_TOOLS))
         if unreviewed:
             fail(f"read-only mode registered tools outside the read-only allowlist: {unreviewed}")
+        # An empty or partial registration must not pass as "all on the allowlist".
+        missing = sorted(set(safety.READ_ONLY_TOOLS) - names)
+        if missing:
+            fail(f"read-only mode did not register allowlisted tools: {missing}")
         print(f"tools: {len(names)}, all on the read-only allowlist", flush=True)
 
         # Discovery takes a few seconds (more under a router), and a just-seen publisher can

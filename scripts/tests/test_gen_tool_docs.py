@@ -341,6 +341,28 @@ def test_provenance_describe_never_names_a_non_release_tag(tmp_path):
     assert prov["git_describe"].startswith("2610-"), prov["git_describe"]
 
 
+RELEASE_CORPUS = ["2610", "2610.1", "2610.9", "2610.10", "2610.99", "0000", "9999.1",
+                  "2610.0", "2610.01", "2610.100", "2610.rc1", "2610.10-rc1", "2610-1", "v2610",
+                  "261", "26100", "2610.", "2610.1.1", "abcd", "2610.a"]
+
+
+@pytest.mark.parametrize("tag", RELEASE_CORPUS)
+def test_describe_globs_accept_exactly_the_release_tags(tag):
+    import fnmatch
+    by_glob = any(fnmatch.fnmatchcase(tag, g) for g in gen.RELEASE_GLOBS)
+    assert by_glob == bool(gen.RELEASE_RE.match(tag)), tag
+
+
+def test_release_fallback_ignores_tags_head_does_not_contain(tmp_path):
+    repo, _ = _history(tmp_path, "0.1.0")
+    _git(repo, "checkout", "-q", "-b", "side")
+    _commit(repo, "server/a.py", "a = 9\n", "side work")
+    _git(repo, "tag", "2611")  # a release tag main never got
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "server/a.py", "a = 3\n", "after 2610")  # HEAD is not itself tagged
+    assert gen.resolve_release(repo, "0.1.0") == "2610"
+
+
 def test_provenance_picks_highest_release_at_head_numerically(tmp_path):
     repo, _ = _history(tmp_path, "0.1.0")
     _git(repo, "tag", "2610.2")
