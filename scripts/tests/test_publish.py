@@ -270,12 +270,29 @@ def test_nothing_rebuilds_between_smoke_test_and_push():
         assert '"$REPO" "$LOCAL_IMAGE" ' in push, f"{job} must push the image it built and tested"
 
 
-def test_arm64_registers_qemu_before_building():
-    steps = DOCKER["jobs"]["build_and_push_arm64"]["steps"]
-    uses = [s.get("uses", "") for s in steps]
-    qemu = next(i for i, u in enumerate(uses) if u.startswith("docker/setup-qemu-action"))
-    build = next(i for i, s in enumerate(steps) if "buildx build" in s.get("run", ""))
-    assert qemu < build
+@pytest.mark.parametrize("job", ["build_and_push_arm64", "build_image_arm64"])
+def test_arm64_builds_natively(job):
+    spec = DOCKER["jobs"][job]
+    assert spec["runs-on"] == "ubuntu-24.04-arm"
+    assert "container" not in spec
+    assert not any(s.get("uses", "").startswith("docker/setup-qemu-action") for s in spec["steps"])
+
+
+@pytest.mark.parametrize("job", ["build_and_push_amd64", "build_and_push_arm64"])
+def test_both_arches_get_the_end_to_end_smoke_before_push(job):
+    runs = [s.get("run", "") for s in DOCKER["jobs"][job]["steps"]]
+    smoke = next(i for i, r in enumerate(runs) if 'smoke_e2e.sh "$LOCAL_IMAGE"' in r)
+    push = next(i for i, r in enumerate(runs) if "publish.sh push" in r)
+    assert smoke < push
+
+
+def test_pull_requests_build_and_smoke_both_arches():
+    for job, runner in (("build_image", "ubuntu-latest"), ("build_image_arm64", "ubuntu-24.04-arm")):
+        spec = DOCKER["jobs"][job]
+        assert spec["runs-on"] == runner
+        assert "github.event_name == 'pull_request'" in spec["if"]
+        runs = " ".join(s.get("run", "") for s in spec["steps"])
+        assert "smoke_e2e.sh ros2_mcp" in runs and "--type-support-only" in runs
 
 
 def test_immutable_check_runs_in_plan_job_through_publish_script():

@@ -9,7 +9,8 @@ name: Docker images build and push
 # Rolling (experimental) gets floating tags only. Every tag also has -amd64 / -arm64 variants.
 #
 # Every image that is pushed is the exact image that passed the smoke test: each job builds once
-# (--load), tests that image, then pushes it.
+# (--load), tests that image, then pushes it. amd64 and arm64 both build natively on GitHub-hosted
+# runners (ubuntu-latest, ubuntu-24.04-arm) and both get the full end-to-end smoke test.
 
 on:
   pull_request:
@@ -122,6 +123,32 @@ jobs:
       - name: End-to-end smoke, every shipped RMW (${{ matrix.distro }})
         run: scripts/smoke_e2e.sh ros2_mcp
 
+  # The same on a native arm64 runner, so arm64 is proven before anything is merged.
+  build_image_arm64:
+    name: Build + smoke ARM64 (${{ matrix.distro }})
+    needs: plan
+    if: github.event_name == 'pull_request' && needs.plan.outputs.mode == 'test'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Docker build (${{ matrix.distro }}, arm64)
+        env:
+          DISTRO: ${{ matrix.distro }}
+        run: docker build --pull -t ros2_mcp --build-arg ROS_DISTRO="$DISTRO" .
+
+      - name: ROS 2 type support smoke test (${{ matrix.distro }}, arm64)
+        run: scripts/smoke_e2e.sh --type-support-only ros2_mcp
+
+      - name: End-to-end smoke, every shipped RMW (${{ matrix.distro }}, arm64)
+        run: scripts/smoke_e2e.sh ros2_mcp
+
   # The publish jobs never run for pull requests, whatever the planner says: on a pull request
   # the planner is the pull request's own code.
   build_and_push_amd64:
@@ -192,24 +219,21 @@ jobs:
           read -ra tag_list <<<"$TAGS"
           ci/scripts/publish.sh push "$REPO" "$LOCAL_IMAGE" amd64 "${tag_list[@]}"
 
-  # arm64 builds under QEMU emulation on the self-hosted runner, so it gets the type-support check;
-  # the end-to-end smoke runs on amd64.
+  # Native arm64 (GitHub-hosted, free for public repositories): same steps as amd64.
   build_and_push_arm64:
-    name: Build + push ARM64 (${{ matrix.distro }})
+    name: Build + smoke + push ARM64 (${{ matrix.distro }})
     needs: plan
     if: >-
       github.event_name != 'pull_request'
       && needs.plan.outputs.mode != 'test' && needs.plan.outputs.has_work == 'true'
-    runs-on: wisevision-runner
-    timeout-minutes: 240  # emulated arm64 builds are slow
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
     continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-    container:
-      image: ubuntu:22.04
     env:
-      # Unique per distro and run: jobs sharing the runner's Docker daemon can never swap images.
+      # Unique per distro and run: jobs sharing a Docker daemon can never swap each other's image.
       LOCAL_IMAGE: ros2_mcp_arm64:${{ matrix.distro }}-${{ github.run_id }}
     steps:
       - name: Checkout publishing scripts
@@ -222,18 +246,6 @@ jobs:
         with:
           ref: ${{ needs.plan.outputs.ref }}
           path: src
-
-      - name: Install Docker CLI and git
-        run: |
-          apt-get update
-          apt-get install -y docker.io git
-
-      # The runner is x86-64; arm64 RUN steps need QEMU registered in the host kernel, and that
-      # registration does not survive a reboot. Register it on every run.
-      - name: Set up QEMU (arm64)
-        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130  # v3
-        with:
-          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3
@@ -249,8 +261,13 @@ jobs:
             --label "org.opencontainers.image.revision=$SHA" \
             --label "io.github.wise-vision.ros2-mcp.run-id=$RUN_ID" src
 
-      - name: Type-support smoke test before publishing
-        run: ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
+      # Same gate as amd64: nothing is published unless the image works against a live graph.
+      - name: Smoke test before publishing
+        run: |
+          ci/scripts/smoke_e2e.sh --type-support-only "$LOCAL_IMAGE"
+          if docker run --rm --entrypoint test "$LOCAL_IMAGE" -f /app/scripts/smoke_client.py; then
+            ci/scripts/smoke_e2e.sh "$LOCAL_IMAGE"
+          fi
 
       - name: Log in to Docker Hub
         uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9  # v3

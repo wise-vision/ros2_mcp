@@ -20,7 +20,8 @@ All notable changes to ROS2 MCP are recorded here. Releases are tagged `YYMM`.
   - backfilling an older release never moves the floating tags;
   - immutability covers the `-amd64`/`-arm64` variants and fails closed when the registry can't answer;
   - a multi-arch tag is only assembled from variants built by the same run;
-  - arm64 registers QEMU on every run;
+  - arm64 builds natively on GitHub's arm64 runners (free for public repositories) and gets the full
+    end-to-end smoke test, on pull requests too, instead of an emulated build with a type-support check;
   - one failed distro no longer blocks the other distros' multi-arch tags;
   - release tags must be on `main`, and the release commit's `server.json` image tag is checked too;
   - a new release without `.github/distros.json` is refused instead of silently treated as legacy;
