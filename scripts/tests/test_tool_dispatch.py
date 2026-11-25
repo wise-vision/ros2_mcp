@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-#  Copyright (C) 2025 wise-vision
+#  Copyright (C) 2025 wisevision
 #
 #  SPDX-License-Identifier: MPL-2.0
 #
