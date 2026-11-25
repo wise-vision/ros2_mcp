@@ -9,10 +9,12 @@
 #
 import typing as t
 from typing import TypedDict, Optional, List, Dict
+import asyncio
 import importlib
 from rclpy.task import Future
 
 from .ros2_manager import ROS2Manager
+from .timed_publish import run_registered_timed_publish, validate_timed_publish_args
 import time
 import rclpy
 from mcp.types import ImageContent
@@ -23,7 +25,6 @@ import io
 from nav_msgs.msg import OccupancyGrid
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-import threading
 from rclpy.qos import QoSDurabilityPolicy, QoSPresetProfiles, QoSReliabilityPolicy
 from rosidl_runtime_py.set_message import set_message_fields
 import math
@@ -234,19 +235,19 @@ class ExtendedROS2Manager:
 
         return result
 
-    def publish_multiple_topics(
+    async def publish_multiple_topics(
         self, configs: List[TopicPublishConfig]
     ) -> Dict[str, str]:
         results = {}
+        base = self.base_manager
+        # Each topic's loop is an asyncio task registered in the same registry
+        # as ros2_topic_publish: a later publish on the same topic (or
+        # cancel_active_publish) cancels it, and cancelling this request
+        # cancels every loop. See server/timed_publish.py.
+        registry = base._timed_publish_registry
 
-        def publish_loop(pub, msg_instance, freq, duration, topic_name):
-            interval = 1.0 / freq
-            end_time = time.time() + duration
-            while time.time() < end_time and self.base_manager.node.context.ok():
-                pub.publish(msg_instance)
-                time.sleep(interval)
-
-        threads = []
+        publishers = []  # publishers whose loops we must destroy at the end
+        loop_tasks = []
         for config in configs:
             topic_name = config.get("topic_name")
             msg_type = config.get("message_type")
@@ -264,36 +265,67 @@ class ExtendedROS2Manager:
                 results[topic_name] = f"Invalid message type: {e}"
                 continue
 
+            freq = config.get("frequency", 1.0)
+            duration = config.get("duration", 5.0)
+            timing_error = validate_timed_publish_args(freq, duration)
+            if timing_error:
+                results[topic_name] = f"Invalid config: {timing_error}"
+                continue
+
+            pub = None
             try:
-                qos = self.base_manager.get_qos_for_publisher_topic(
-                    self.base_manager.node, topic_name
-                )
+                qos = base.get_qos_for_publisher_topic(base.node, topic_name)
                 if qos is None:
-                    pub = self.base_manager.node.create_publisher(
-                        msg_class, topic_name, 10
-                    )
+                    pub = base.node.create_publisher(msg_class, topic_name, 10)
                 else:
-                    pub = self.base_manager.node.create_publisher(
-                        msg_class, topic_name, qos
-                    )
+                    pub = base.node.create_publisher(msg_class, topic_name, qos)
                 msg_instance = msg_class()
                 set_message_fields(msg_instance, data)
-                freq = config.get("frequency", 1.0)
-                duration = config.get("duration", 5.0)
 
-                thread = threading.Thread(
-                    target=publish_loop,
-                    args=(pub, msg_instance, freq, duration, topic_name),
-                    daemon=True,
+                topic_key = registry.key_for(topic_name)
+                loop_tasks.append(
+                    asyncio.create_task(
+                        run_registered_timed_publish(
+                            registry,
+                            topic_key,
+                            lambda pub=pub, msg=msg_instance: pub.publish(msg),
+                            frequency=freq,
+                            duration=duration,
+                            context_ok=base.node.context.ok,
+                        )
+                    )
                 )
-                thread.start()
-                threads.append(thread)
+                publishers.append(pub)
                 results[topic_name] = "Publishing started"
             except Exception as e:
                 results[topic_name] = f"Failed to publish: {e}"
+                if pub is not None:
+                    try:
+                        base.node.destroy_publisher(pub)
+                    except Exception:
+                        pass
 
-        for thread in threads:
-            thread.join()
+        try:
+            # Wait for every loop. One topic being stopped early (a newer
+            # publish on that topic) must not cancel its siblings, so this is
+            # a wait loop rather than asyncio.gather.
+            pending = set(loop_tasks)
+            while pending:
+                _done, pending = await asyncio.wait(
+                    pending, return_when=asyncio.FIRST_COMPLETED
+                )
+        finally:
+            # Request cancellation (or an exception) must stop every loop and
+            # still destroy the publishers.
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.wait(pending)
+            for pub in publishers:
+                try:
+                    base.node.destroy_publisher(pub)
+                except Exception:
+                    pass
         return results
 
     def get_single_map_from_topic(

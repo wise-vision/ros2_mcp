@@ -2,8 +2,8 @@
   "provenance": {
     "release": "2610",
     "package_version": "2610",
-    "git_describe": "2610-2-gc1bfecd",
-    "source_sha": "c1bfecdfc966b920791870ff29c18a4de33556d1"
+    "git_describe": "2610-20-g95ee1ff",
+    "source_sha": "95ee1ff0c16ce75c10b9e628105a2bdb508558e6"
   },
   "tools": [
     {
@@ -323,7 +323,8 @@
                 },
                 "duration": {
                   "default": 5.0,
-                  "description": "Duration in seconds to publish (optional)",
+                  "description": "Duration in seconds to publish (optional, maximum 300)",
+                  "maximum": 300.0,
                   "type": "number"
                 },
                 "frequency": {
@@ -598,15 +599,20 @@
     },
     {
       "name": "ros2_topic_publish",
-      "description": "Publish a message to a ROS 2 topic by name and message type using provided field values.\n            Supports single publish (default) or continuous publishing at a specified frequency for a duration.\n            Before **every** use of this tool, the agent must call 'ros2_topic_list' and 'ros2_interface_list'\n            to ensure the latest available topics and message types are known.",
+      "description": "Publish a message to a ROS 2 topic by name and message type using provided field values.\n            Supports single publish (default) or continuous publishing at a specified frequency for a duration.\n            Before **every** use of this tool, the agent must call 'ros2_topic_list' and 'ros2_interface_list'\n            to ensure the latest available topics and message types are known.\n\n            Continuous publishing (frequency + duration) keeps this request open for the whole duration\n            while the server keeps serving other tool calls. Only one continuous publish runs per topic\n            at a time. A running continuous publish is stopped by publishing to the same topic again —\n            e.g. a zero-velocity command — or by calling this tool with cancel_active_publish=true;\n            the stopped call then ends as a cancelled request and the stop message is guaranteed to be\n            the last published message. Cancelling this request also stops the loop.\n            duration is capped at 300 seconds.",
       "input_schema": {
         "properties": {
+          "cancel_active_publish": {
+            "description": "Optional: When true, stop an active continuous publish on topic_name instead of publishing. The other arguments are ignored; reuse them from the original call.",
+            "type": "boolean"
+          },
           "data": {
             "description": "Dictionary containing the message fields and values",
             "type": "object"
           },
           "duration": {
-            "description": "Optional: Duration in seconds for continuous publishing. Must be used with frequency parameter.",
+            "description": "Optional: Duration in seconds for continuous publishing (maximum 300). Must be used with frequency parameter.",
+            "maximum": 300.0,
             "type": "number"
           },
           "frequency": {

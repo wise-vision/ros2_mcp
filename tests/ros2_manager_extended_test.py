@@ -9,6 +9,7 @@
 #  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
 
+import asyncio
 import base64
 from server.ros2_manager_extended import ExtendedROS2Manager
 import rclpy
@@ -314,7 +315,7 @@ def test_publish_multiple_topics():
             }
         ]
 
-        result = ros.publish_multiple_topics(configs)
+        result = asyncio.run(ros.publish_multiple_topics(configs))
 
         spin_thread.join(timeout=5.0)
 
@@ -346,7 +347,7 @@ def test_publish_multiple_topics_with_invalid_message_type():
             }
         ]
 
-        result = ros.publish_multiple_topics(configs)
+        result = asyncio.run(ros.publish_multiple_topics(configs))
         assert topic in result
         assert "Invalid message type" in result[topic]
     finally:
@@ -368,7 +369,7 @@ def test_publish_multiple_topics_with_invalid_data():
             }
         ]
 
-        result = ros.publish_multiple_topics(configs)
+        result = asyncio.run(ros.publish_multiple_topics(configs))
         assert topic in result
         assert "Failed to publish" in result[topic]
     finally:
@@ -397,7 +398,7 @@ def test_publish_multiple_topics_with_missing_fields():
             }
         ]
 
-        result = ros.publish_multiple_topics(configs)
+        result = asyncio.run(ros.publish_multiple_topics(configs))
 
         assert "<unknown>" in result or "/missing_data" in result or "/missing_type" in result
         for topic, status in result.items():

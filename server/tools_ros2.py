@@ -18,22 +18,30 @@ from mcp.types import (
 )
 
 import json
+import threading
+
 from . import toolhandler
 from . import ros2_manager
+from .timed_publish import MAX_PUBLISH_DURATION_SEC
 
 _ros_instance = None
+# Tool handlers run concurrently in worker threads (server.call_tool uses
+# asyncio.to_thread), so first-call singleton creation can race: guard it.
+_ros_instance_lock = threading.Lock()
 
 
 def get_ros() -> ros2_manager.ROS2Manager:
     global _ros_instance
     if _ros_instance is None or not _ros_instance.node.context.ok():
-        import rclpy
+        with _ros_instance_lock:
+            if _ros_instance is None or not _ros_instance.node.context.ok():
+                import rclpy
 
-        if not rclpy.ok():
-            raise RuntimeError(
-                "rclpy is not initialized. Make sure rclpy.init() was called in main()."
-            )
-        _ros_instance = ros2_manager.ROS2Manager()
+                if not rclpy.ok():
+                    raise RuntimeError(
+                        "rclpy is not initialized. Make sure rclpy.init() was called in main()."
+                    )
+                _ros_instance = ros2_manager.ROS2Manager()
     _ros_instance.warm_up_discovery()
     return _ros_instance
 
@@ -350,10 +358,18 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
     def get_tool_description(self):
         return Tool(
             name=self.name,
-            description="""Publish a message to a ROS 2 topic by name and message type using provided field values.
+            description=f"""Publish a message to a ROS 2 topic by name and message type using provided field values.
             Supports single publish (default) or continuous publishing at a specified frequency for a duration.
             Before **every** use of this tool, the agent must call 'ros2_topic_list' and 'ros2_interface_list'
-            to ensure the latest available topics and message types are known.""",
+            to ensure the latest available topics and message types are known.
+
+            Continuous publishing (frequency + duration) keeps this request open for the whole duration
+            while the server keeps serving other tool calls. Only one continuous publish runs per topic
+            at a time. A running continuous publish is stopped by publishing to the same topic again —
+            e.g. a zero-velocity command — or by calling this tool with cancel_active_publish=true;
+            the stopped call then ends as a cancelled request and the stop message is guaranteed to be
+            the last published message. Cancelling this request also stops the loop.
+            duration is capped at {MAX_PUBLISH_DURATION_SEC:g} seconds.""",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -375,14 +391,19 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
                     },
                     "duration": {
                         "type": "number",
-                        "description": "Optional: Duration in seconds for continuous publishing. Must be used with frequency parameter.",
+                        "maximum": MAX_PUBLISH_DURATION_SEC,
+                        "description": f"Optional: Duration in seconds for continuous publishing (maximum {MAX_PUBLISH_DURATION_SEC:g}). Must be used with frequency parameter.",
+                    },
+                    "cancel_active_publish": {
+                        "type": "boolean",
+                        "description": "Optional: When true, stop an active continuous publish on topic_name instead of publishing. The other arguments are ignored; reuse them from the original call.",
                     },
                 },
                 "required": ["topic_name", "message_type", "data"],
             },
         )
 
-    def run_tool(self, args: dict) -> Sequence[TextContent | EmbeddedResource]:
+    async def run_tool_async(self, args: dict) -> Sequence[TextContent | EmbeddedResource]:
 
         topic_name = args.get("topic_name")
         message_type = args.get("message_type")
@@ -391,9 +412,16 @@ class ROS2TopicPublish(toolhandler.ToolHandler):
         duration = args.get("duration")
 
         ros = get_ros()
-        publish_to_topic = ros.publish_to_topic(
-            topic_name, 
-            message_type, 
+
+        if args.get("cancel_active_publish"):
+            cancel_result = ros.cancel_timed_publish(topic_name)
+            return [TextContent(type="text", text=json.dumps(cancel_result, indent=2))]
+
+        # Runs on the event loop inside this request's task: see
+        # server/timed_publish.py for the stop/cancel ordering guarantees.
+        publish_to_topic = await ros.publish_to_topic(
+            topic_name,
+            message_type,
             data,
             frequency=frequency,
             duration=duration
