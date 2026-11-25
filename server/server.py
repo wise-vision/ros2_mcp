@@ -182,7 +182,11 @@ async def call_tool(
         if not tool_handler:
             raise ValueError(f"Unknown tool: {name}")
 
-        return tool_handler.run_tool(arguments)
+        # Handlers with an async path (the publish tools) run on this event
+        # loop, inside the request's own task: a timed publish is cancelled by
+        # cancelling its request and never occupies a worker thread. Blocking
+        # sync handlers run in a worker thread so they cannot stall the loop.
+        return await toolhandler.execute_tool_handler(tool_handler, arguments)
     except Exception as e:
         logging.error(traceback.format_exc())
         logging.error(f"Error during call_tool: {e}")

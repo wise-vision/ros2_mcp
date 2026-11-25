@@ -20,15 +20,23 @@ from mcp.types import (
 )
 
 import json
+import threading
+
+from .timed_publish import MAX_PUBLISH_DURATION_SEC
 from .toolhandler import ToolHandler
 
 _ros_extended: ExtendedROS2Manager | None = None
+# Tool handlers run concurrently in worker threads (server.call_tool uses
+# asyncio.to_thread), so first-call singleton creation can race: guard it.
+_ros_extended_lock = threading.Lock()
 
 
 def get_ros_extended() -> ExtendedROS2Manager:
     global _ros_extended
     if _ros_extended is None or not _ros_extended.base_manager.node.context.ok():
-        _ros_extended = ExtendedROS2Manager(base_manager=get_ros())
+        with _ros_extended_lock:
+            if _ros_extended is None or not _ros_extended.base_manager.node.context.ok():
+                _ros_extended = ExtendedROS2Manager(base_manager=get_ros())
     return _ros_extended
 
 class SubscribeMultipleTopicsTool(ToolHandler):
@@ -150,7 +158,8 @@ class PublishMultipleTopicsTool(ToolHandler):
                                 },
                                 "duration": {
                                     "type": "number",
-                                    "description": "Duration in seconds to publish (optional)",
+                                    "maximum": MAX_PUBLISH_DURATION_SEC,
+                                    "description": f"Duration in seconds to publish (optional, maximum {MAX_PUBLISH_DURATION_SEC:g})",
                                     "default": 5.0,
                                 },
                             },
@@ -162,11 +171,13 @@ class PublishMultipleTopicsTool(ToolHandler):
             },
         )
 
-    def run_tool(self, args: dict) -> Sequence[TextContent]:
+    async def run_tool_async(self, args: dict) -> Sequence[TextContent]:
         topics_arg = args.get("topics", [])
 
         ros = get_ros_extended()
-        result = ros.publish_multiple_topics(topics_arg)
+        # Runs on the event loop inside this request's task: see
+        # server/timed_publish.py for the stop/cancel ordering guarantees.
+        result = await ros.publish_multiple_topics(topics_arg)
 
         outputs: list[TextContent] = []
 

@@ -9,6 +9,8 @@
 #  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 #
 
+import asyncio
+
 from unittest.mock import MagicMock, patch
 from server.ros2_manager import ROS2Manager
 import server.ros2_manager as _rm
@@ -283,7 +285,7 @@ def test_publish_to_topic_string_no_type_mocks(mock_node_cls):
         mock_publisher = MagicMock()
         mock_node.create_publisher.return_value = mock_publisher
 
-        result = manager.publish_to_topic("/chatter", "std_msgs/msg/String", {"data": "Hello"})
+        result = asyncio.run(manager.publish_to_topic("/chatter", "std_msgs/msg/String", {"data": "Hello"}))
 
         assert result["status"] == "published"
         mock_node.create_publisher.assert_called_once()
@@ -299,21 +301,21 @@ def test_publish_to_topic_string_no_type_mocks(mock_node_cls):
 @patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_topic_name(mock_node_cls):
     manager = ROS2Manager()
-    result = manager.publish_to_topic("", "std_msgs/msg/String", {"data": "Hello"})
+    result = asyncio.run(manager.publish_to_topic("", "std_msgs/msg/String", {"data": "Hello"}))
     assert "error" in result
     assert result["error"] == "Invalid topic name. It must be a non-empty string."
 
 @patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_message_type(mock_node_cls):
     manager = ROS2Manager()
-    result = manager.publish_to_topic("/chatter", "invalidtype", {"data": "Hello"})
+    result = asyncio.run(manager.publish_to_topic("/chatter", "invalidtype", {"data": "Hello"}))
     assert "error" in result
     assert result["error"] == "Invalid message type. It must be a valid ROS2 message type string."
 
 @patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_data(mock_node_cls):
     manager = ROS2Manager()
-    result = manager.publish_to_topic("/chatter", "std_msgs/msg/String", "invalid_data")
+    result = asyncio.run(manager.publish_to_topic("/chatter", "std_msgs/msg/String", "invalid_data"))
     assert "error" in result
     assert result["error"] == "Invalid data. It must be a dictionary."
 
@@ -1075,7 +1077,7 @@ def test_publish_to_topic_uses_selected_qos(mock_node_cls):
     manager = ROS2Manager()
     manager.get_qos_for_publisher_topic = MagicMock(return_value=chosen_qos)
 
-    result = manager.publish_to_topic("/chatter", "std_msgs/msg/String", {"data": "hello"})
+    result = asyncio.run(manager.publish_to_topic("/chatter", "std_msgs/msg/String", {"data": "hello"}))
 
     assert result["status"] == "published"
     args, kwargs = mock_node.create_publisher.call_args
@@ -1364,7 +1366,7 @@ def test_publish_to_topic_two_part_format(mock_node_cls):
         mock_publisher = MagicMock()
         mock_node.create_publisher.return_value = mock_publisher
 
-        result = manager.publish_to_topic("/test", "std_msgs/String", {"data": "Hi"})
+        result = asyncio.run(manager.publish_to_topic("/test", "std_msgs/String", {"data": "Hi"}))
 
         assert result["status"] == "published"
         mock_publisher.publish.assert_called_once()
@@ -1376,7 +1378,7 @@ def test_publish_to_topic_two_part_format(mock_node_cls):
 @patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_invalid_format_single_part(mock_node_cls):
     manager = ROS2Manager()
-    result = manager.publish_to_topic("/test", "invalid", {"data": "test"})
+    result = asyncio.run(manager.publish_to_topic("/test", "invalid", {"data": "test"}))
     
     assert "error" in result
     # Should match the actual error message from the code
@@ -1386,7 +1388,7 @@ def test_publish_to_topic_invalid_format_single_part(mock_node_cls):
 @patch.object(_rm, "ServiceNode")
 def test_publish_to_topic_nonexistent_package(mock_node_cls):
     manager = ROS2Manager()
-    result = manager.publish_to_topic("/test", "fake_pkg/msg/FakeMsg", {"data": "test"})
+    result = asyncio.run(manager.publish_to_topic("/test", "fake_pkg/msg/FakeMsg", {"data": "test"}))
     
     assert "error" in result
     assert "Failed to load" in result["error"]
@@ -1414,7 +1416,7 @@ def test_publish_to_topic_publish_exception(mock_import, mock_node_cls):
         mock_publisher.publish.side_effect = Exception("Publish failed")
         mock_node.create_publisher.return_value = mock_publisher
 
-        result = manager.publish_to_topic("/test", "std_msgs/msg/String", {"data": "test"})
+        result = asyncio.run(manager.publish_to_topic("/test", "std_msgs/msg/String", {"data": "test"}))
 
         assert "error" in result
         assert "Failed to publish" in result["error"]

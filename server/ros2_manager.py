@@ -42,6 +42,12 @@ from rclpy.qos import QoSReliabilityPolicy
 from rclpy.action import ActionClient
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 
+from .timed_publish import (
+    TimedPublishRegistry,
+    run_registered_timed_publish,
+    validate_timed_publish_args,
+)
+
 QOS_DEPTH = 1_000
 SUBCRIPTION_DURATION_TIME = 5.0
 GOAL_STATUS = {
@@ -112,6 +118,32 @@ class ROS2Manager:
         self._discovery_warmup_lock = threading.Lock()
         self._streams_lock = threading.Lock()
         self._streams: dict[str, "_MCPStreamSession"] = {}
+        # Running timed publish tasks per topic. Registry methods are only
+        # called from the server's event loop (the publish tools dispatch
+        # through ToolHandler.run_tool_async); see server/timed_publish.py.
+        self._timed_publish_registry = TimedPublishRegistry()
+        # Tool handlers run concurrently (sync ones in asyncio.to_thread
+        # workers). rclpy's global executor rejects overlapping spins
+        # ("Executor is already spinning"), so every spin of the shared node
+        # is serialized through this one lock. The publish/stop path never
+        # spins the node, so a stop never waits on it.
+        self._node_spin_lock = threading.Lock()
+
+    def _spin_shared_node_until_future_complete(self, future, timeout_sec=None, node=None):
+        """Spin the (shared) node on rclpy's global executor, serialized by
+        ``_node_spin_lock`` so concurrent handlers cannot re-enter the
+        executor. See ROS2Manager.__init__."""
+        with self._node_spin_lock:
+            node = self.node if node is None else node
+            if timeout_sec is None:
+                return rclpy.spin_until_future_complete(node, future)
+            return rclpy.spin_until_future_complete(node, future, timeout_sec=timeout_sec)
+
+    def _spin_shared_node_once(self, timeout_sec: float):
+        """Spin the shared node once on rclpy's global executor, serialized by
+        ``_node_spin_lock``. See ROS2Manager.__init__."""
+        with self._node_spin_lock:
+            return rclpy.spin_once(self.node, timeout_sec=timeout_sec)
 
     def _get_topic_type(self, topic_name: str) -> str | None:
         try:
@@ -611,7 +643,7 @@ class ROS2Manager:
                 # Give rclpy a chance to process graph updates, but avoid busy looping.
                 step_start = time.monotonic()
                 try:
-                    rclpy.spin_once(self.node, timeout_sec=step)
+                    self._spin_shared_node_once(step)
                 except Exception:
                     pass
                 spun = time.monotonic() - step_start
@@ -855,7 +887,7 @@ class ROS2Manager:
             set_message_fields(request, fields)
 
             future = client.call_async(request)
-            rclpy.spin_until_future_complete(self.node, future)
+            self._spin_shared_node_until_future_complete(future)
             if future.result() is not None:
                 return {"result": str(future.result())}
             else:
@@ -1120,7 +1152,11 @@ class _MCPStreamSession:
         if params.get("time_end"):
             request.time_end = parse_iso8601_to_fulldatetime(params["time_end"])
 
-        response = client.call(request, timeout_sec=5.0)
+        # client.call blocks on the response and (depending on the rclpy
+        # version) processes it through the global executor: serialize it
+        # with every other shared-node spin.
+        with self._node_spin_lock:
+            response = client.call(request, timeout_sec=5.0)
         if response is None:
             return {"error": "Service call timed out"}
 
@@ -1166,10 +1202,10 @@ class _MCPStreamSession:
         except Exception as e:
             return {"error": f"Deserialization error: {e}"}
 
-    def publish_to_topic(
-        self, 
-        topic_name: str, 
-        message_type: str, 
+    async def publish_to_topic(
+        self,
+        topic_name: str,
+        message_type: str,
         data: dict,
         frequency: float | None = None,
         duration: float | None = None
@@ -1201,48 +1237,81 @@ class _MCPStreamSession:
             msg_class = getattr(module, msg)
         except Exception as e:
             return {"error": f"Failed to load message type: {str(e)}"}
-        
+
+        # Validate timing parameters before creating anything, so a rejected
+        # request does not leak a publisher on the shared node.
+        timed_publish = frequency is not None and duration is not None
+        if timed_publish:
+            timing_error = validate_timed_publish_args(frequency, duration)
+            if timing_error:
+                return {"error": timing_error}
+
         tmp_node = Node("mcp_publish_tmp")
         try:
             qos = self.get_qos_for_publisher_topic(tmp_node, topic_name)
         finally:
             tmp_node.destroy_node()
 
+        pub = None
         try:
             pub = self.node.create_publisher(msg_class, topic_name, qos)
             msg_instance = msg_class()
             set_message_fields(msg_instance, data)
-            
-            # If frequency and duration are provided, publish repeatedly
-            if frequency is not None and duration is not None:
-                if frequency <= 0:
-                    return {"error": "Frequency must be greater than 0."}
-                if duration <= 0:
-                    return {"error": "Duration must be greater than 0."}
-                
-                interval = 1.0 / frequency
-                end_time = time.time() + duration
-                published_count = 0
-                
-                while time.time() < end_time and self.node.context.ok():
-                    pub.publish(msg_instance)
-                    published_count += 1
-                    time.sleep(interval)
-                
+
+            if timed_publish:
+                # The loop runs on the server's event loop inside this
+                # request's own task (the tool dispatches publish through
+                # run_tool_async): cancelling the request, or a newer publish
+                # on this topic, cancels the loop; the stop message published
+                # by that newer call can never be followed by a message of
+                # this loop. See server/timed_publish.py.
+                outcome = await run_registered_timed_publish(
+                    self._timed_publish_registry,
+                    self._timed_publish_registry.key_for(topic_name),
+                    lambda: pub.publish(msg_instance),
+                    frequency=frequency,
+                    duration=duration,
+                    context_ok=self.node.context.ok,
+                )
                 return {
                     "status": "published",
                     "data": data,
-                    "published_count": published_count,
+                    "published_count": outcome["published_count"],
                     "frequency": frequency,
-                    "duration": duration
+                    "duration": duration,
+                    "elapsed_sec": outcome["elapsed_sec"],
                 }
             else:
-                # Single publish (original behavior)
+                # Single publish; stop a timed publish running on this topic
+                # first. There is no await between the cancel and this
+                # publish, so the stop command is the last message on the
+                # topic.
+                self._timed_publish_registry.cancel(
+                    self._timed_publish_registry.key_for(topic_name)
+                )
                 pub.publish(msg_instance)
                 return {"status": "published", "data": data}
-                
+
         except Exception as e:
             return {"error": "Failed to publish message due to an internal error."}
+        finally:
+            if pub is not None:
+                try:
+                    self.node.destroy_publisher(pub)
+                except Exception:
+                    pass
+
+    def cancel_timed_publish(self, topic_name: str) -> dict:
+        """Stop the timed publish running on ``topic_name`` without publishing
+        anything (the stopped request then ends as cancelled). Returns whether
+        a loop was actually running. Must be called on the event loop."""
+        topic_key = self._timed_publish_registry.key_for(topic_name)
+        was_active = self._timed_publish_registry.cancel(topic_key)
+        return {
+            "status": "cancel_requested" if was_active else "no_active_timed_publish",
+            "topic": topic_name,
+            "was_active": was_active,
+        }
 
     def shutdown(self):
         try:
@@ -1286,7 +1355,7 @@ class _MCPStreamSession:
             set_message_fields(goal_msg, goal_fields)
 
             send_future = client.send_goal_async(goal_msg)
-            rclpy.spin_until_future_complete(self.node, send_future)
+            self._spin_shared_node_until_future_complete(send_future)
 
             goal_handle = send_future.result()
             if goal_handle is None:
@@ -1346,15 +1415,15 @@ class _MCPStreamSession:
             response["result_timeout_sec"] = float(timeout_sec)
 
             result_future = goal_handle.get_result_async()
-            rclpy.spin_until_future_complete(
-                self.node, result_future, timeout_sec=timeout_sec
+            self._spin_shared_node_until_future_complete(
+                result_future, timeout_sec=timeout_sec
             )
 
             if not result_future.done():
                 try:
                     cancel_future = goal_handle.cancel_goal_async()
-                    rclpy.spin_until_future_complete(
-                        self.node, cancel_future, timeout_sec=3.0
+                    self._spin_shared_node_until_future_complete(
+                        cancel_future, timeout_sec=3.0
                     )
                 except Exception:
                     # Ignore errors extracting goal_id; goal_id_hex will remain None if extraction fails.
@@ -1422,7 +1491,9 @@ class _MCPStreamSession:
             req.goal_info.stamp.nanosec = int(stamp_nanosec)
 
             future = client.call_async(req)
-            rclpy.spin_until_future_complete(node, future, timeout_sec=wait_timeout_sec)
+            self._spin_shared_node_until_future_complete(
+                future, timeout_sec=wait_timeout_sec, node=node
+            )
             resp = future.result()
             if resp is None:
                 return {"error": "CancelGoal call failed or timed out."}
@@ -1514,10 +1585,7 @@ class _MCPStreamSession:
                 return {"error": f"Invalid goal_id_hex: {e}"}
 
             future = client.call_async(req)
-            if timeout_sec is None:
-                rclpy.spin_until_future_complete(self.node, future)
-            else:
-                rclpy.spin_until_future_complete(self.node, future, timeout_sec=timeout_sec)
+            self._spin_shared_node_until_future_complete(future, timeout_sec=timeout_sec)
 
             if not future.done():
                 return {
@@ -1639,7 +1707,7 @@ class _MCPStreamSession:
             while self.node.get_clock().now().nanoseconds < end_time:
                 if len(out["messages"]) >= max_messages:
                     break
-                rclpy.spin_once(self.node, timeout_sec=0.1)
+                self._spin_shared_node_once(0.1)
 
             return out
 
@@ -1731,7 +1799,7 @@ class _MCPStreamSession:
             while self.node.get_clock().now().nanoseconds < end_time:
                 if len(out["frames"]) >= max_messages:
                     break
-                rclpy.spin_once(self.node, timeout_sec=0.1)
+                self._spin_shared_node_once(0.1)
 
             return out
 
@@ -1758,6 +1826,7 @@ for _name in (
     "subscribe_topic",
     "call_get_messages_service_any",
     "publish_to_topic",
+    "cancel_timed_publish",
     "shutdown",
     "send_action_goal",
     "cancel_action_goal",
